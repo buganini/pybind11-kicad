@@ -1,15 +1,457 @@
-# KiKit/Kikakuka KiCad Native Backend Plan
+# pybind11-kicad Headless KiCad Library Plan
+
+## Current Repository Status
+
+This repository now contains the first executable proof-of-concept slice:
+
+* `python/pybind11_kicad/__init__.py` exposes the clean headless KiCad API shape.
+* `python/pcbnew.py` exposes a top-level partial `pcbnew` compatibility shim.
+* `native/` contains the C++ facade and pybind11 module scaffold. The bundled KiCad engine is not wired yet; native calls fail clearly instead of pretending to embed KiCad.
+* `tests/` verifies the Python import surface, compatibility metadata, unit helpers, and clear native-backend failure while KiCad is not wired.
+* the current target is KiCad 10, and the distribution/backend major-version
+  name is `pybind11-kicad-native-10`.
+* the current target Python version is Python 3.14.
+
+## License
+
+pybind11-kicad is licensed under GPL-3.0-or-later, following KiCad's license.
+See `LICENSE`.
+
+## Build And Test
+
+The current proof of concept has one backend target: the native C++/pybind11
+module. The Python package only provides import paths and thin compatibility
+wrappers around that native module.
+
+Prerequisites:
+
+* Python 3.14
+* CMake 3.20 or newer
+* a C++20 compiler, following KiCad's current C++ standard
+* pybind11, optional for configuring the native Python extension target
+
+To retarget the Python version, update `requires-python` in
+`pyproject.toml`, then update the README prerequisite, example commands, and
+milestone/status text that mention the old version. CMake does not currently
+pin a Python version; it uses pybind11/FindPython discovery for the interpreter
+used to build the native extension.
+
+Run the Python API and compatibility tests:
+
+```sh
+PYTHONPATH=python python3.14 -m unittest discover -s tests
+```
+
+Use the package directly from the checkout:
+
+```sh
+PYTHONPATH=python python3.14
+```
+
+```python
+import pybind11_kicad as kc
+
+print(kc.backend_version())
+print(kc.native_available())
+print(kc.target_kicad_major())
+```
+
+Configure and build the native scaffold:
+
+```sh
+cmake -S native -B /tmp/pybind11-kicad-native-10-check
+cmake --build /tmp/pybind11-kicad-native-10-check
+```
+
+The native target currently builds only the facade and pybind11 scaffold. It
+does not yet link a bundled KiCad engine; board IO intentionally raises a clear
+"not wired yet" error until KiCad source/dependencies are added.
+
+## Technical Decision: Single Native Backend
+
+pybind11-kicad will have exactly one production board-file backend: the
+pybind11 module backed by the bundled, pinned KiCad engine.
+
+The Python package may provide:
+
+* public import paths
+* thin API wrappers
+* the partial `pcbnew` compatibility shim
+* unit helpers and compatibility metadata
+
+The Python package must not provide:
+
+* a second `.kicad_pcb` parser
+* a separate board object model
+* direct board read/write behavior independent of the native module
+* silent degradation when the native backend is missing or not initialized
+
+If the native extension is unavailable, board IO should fail immediately with a
+clear error. This keeps failures attributable to one implementation and avoids
+creating a second behavior surface that has to be maintained, tested, and
+debugged whenever KiCad file semantics change.
+
+Consequences:
+
+* Early tests can verify imports, wrappers, compatibility metadata, and clear
+  failure modes, but real board roundtrip tests must wait for the bundled KiCad
+  engine.
+* Any test-only file normalization or fixture inspection tooling must stay
+  outside the public runtime API.
+* The `pcbnew` compatibility layer is a shim over the same native API, not an
+  independent implementation.
+
+## Source Audit: Required `pcbnew` Surface
+
+This audit is based on local source checkouts:
+
+* KiKit: `/Users/buganini/repo/other/KiKit`, commit `036ca08`
+* Kikakuka: `/Users/buganini/repo/buganini/kikakuka`, commit `4c37246`
+
+Generated or vendored Kikakuka paths such as `env/`, `build/`, and `dist/`
+were excluded from the API search.
+
+The result is that full KiKit/Kikakuka compatibility requires a broad
+board-editing object model. It is not enough to expose only
+`LoadBoard`, `Save`, and `GetFootprints`.
+
+### Core Bring-up API
+
+These are needed before meaningful KiKit/Kikakuka workflows can run:
+
+```python
+pcbnew.LoadBoard(path)
+pcbnew.NewBoard(path)
+pcbnew.BOARD()
+board.Save(path)
+board.Add(item)
+board.Remove(item)
+board.GetFileName()
+board.GetDrawings()
+board.GetFootprints()
+board.GetTracks()
+board.GetPads()
+board.Zones()
+board.GetNetInfo()
+board.GetDesignSettings()
+board.GetCopperLayerCount()
+board.SetCopperLayerCount(count)
+board.GetEnabledLayers()
+board.GetLayerName(layer)
+```
+
+Required value types and unit helpers:
+
+```python
+pcbnew.VECTOR2I(x, y)
+pcbnew.BOX2I(origin, size)
+pcbnew.EDA_ANGLE(value, unit)
+pcbnew.DEGREES_T
+pcbnew.RADIANS_T
+pcbnew.TENTHS_OF_A_DEGREE_T
+pcbnew.FromMM(mm)
+pcbnew.ToMM(value)
+pcbnew.ToMils(value)
+pcbnew.PCB_IU_PER_MM
+pcbnew.wxPoint
+```
+
+Required layer constants include at least:
+
+```python
+F_Cu, B_Cu, In1_Cu ... In30_Cu
+F_SilkS, B_SilkS
+F_Mask, B_Mask
+F_Paste, B_Paste
+F_CrtYd, B_CrtYd
+Edge_Cuts
+Margin
+```
+
+### Geometry and Board Items
+
+Panelization, substrate extraction, Gerber import, and stencil generation need
+constructible and mutable board items:
+
+```python
+pcbnew.PCB_SHAPE()
+pcbnew.PCB_TEXT(board_or_parent)
+pcbnew.PCB_VIA(board)
+pcbnew.FootprintLoad(lib_path, footprint_name)
+pcbnew.NETINFO_ITEM(board, name)
+pcbnew.ZONE(board)
+pcbnew.ZONES()
+pcbnew.SHAPE_POLY_SET()
+pcbnew.SHAPE_LINE_CHAIN()
+```
+
+Shape constants and via/pad constants used by KiKit/Kikakuka:
+
+```python
+SHAPE_T_SEGMENT
+SHAPE_T_ARC
+SHAPE_T_CIRCLE
+SHAPE_T_RECTANGLE
+SHAPE_T_POLY
+S_SEGMENT
+PAD_ATTRIB_SMD
+PAD_SHAPE_OVAL
+PAD_DRILL_SHAPE_OBLONG
+VIATYPE_THROUGH
+ZONE_FILL_MODE_HATCH_PATTERN
+FP_EXCLUDE_FROM_POS_FILES
+```
+
+Common item methods used across the source:
+
+```python
+item.Duplicate()
+item.Cast()
+item.Move(vector)
+item.Rotate(origin, angle)
+item.Flip(origin, flip_left_right)
+item.GetBoundingBox()
+item.GetLayer()
+item.SetLayer(layer)
+item.GetWidth()
+item.SetWidth(width)
+item.m_Uuid.AsString()
+```
+
+`PCB_SHAPE` needs line, arc, circle, rectangle, and polygon operations:
+
+```python
+shape.GetShape()
+shape.SetShape(shape_type)
+shape.GetStart()
+shape.SetStart(point)
+shape.GetEnd()
+shape.SetEnd(point)
+shape.GetStartX()
+shape.GetStartY()
+shape.GetCenter()
+shape.SetCenter(point)
+shape.GetRadius()
+shape.SetRadius(radius)
+shape.SetArcGeometry(start, mid, end)
+shape.SetArcAngleAndEnd(angle)
+shape.GetPolyShape()
+shape.SetFilled(bool)
+```
+
+`SHAPE_POLY_SET` / outline support needs:
+
+```python
+poly.NewOutline()
+poly.Append(x, y, outline)
+poly.AddOutline(line_chain)
+poly.AddHole(line_chain)
+poly.RemoveAllContours()
+poly.Outline(index)
+poly.OutlineCount()
+line_chain.PointCount()
+line_chain.CPoint(index)
+```
+
+### Footprints, Pads, Text, and Fields
+
+Full compatibility needs footprint duplication, placement, metadata, pads, and
+reference/value text manipulation:
+
+```python
+footprint.GetReference()
+footprint.SetReference(text)
+footprint.GetValue()
+footprint.SetValue(text)
+footprint.Reference()
+footprint.Value()
+footprint.GetPosition()
+footprint.SetPosition(point)
+footprint.GetX()
+footprint.GetY()
+footprint.GetOrientation()
+footprint.SetOrientation(angle)
+footprint.GetLayer()
+footprint.SetLayer(layer)
+footprint.GetFPID()
+footprint.GetFPIDAsString()
+footprint.SetFPIDAsString(text)
+footprint.GetAttributes()
+footprint.SetExcludedFromPosFiles(bool)
+footprint.IsExcludedFromPosFiles()
+footprint.SetExcludedFromBOM(bool)
+footprint.Pads()
+footprint.GraphicalItems()
+footprint.Zones()
+footprint.GetFieldByName(name)
+footprint.SetField(name, value)
+footprint.Remove(item)
+```
+
+Pad support must cover:
+
+```python
+pad.GetAttribute()
+pad.SetShape(shape)
+pad.SetDrillShape(shape)
+pad.SetSize(vector)
+pad.SetSizeX(value)
+pad.SetSizeY(value)
+pad.SetDrillSize(vector)
+pad.SetDrillSizeX(value)
+pad.SetDrillSizeY(value)
+```
+
+Text and field support must cover both standalone text and footprint fields:
+
+```python
+text.GetText()
+text.SetText(text)
+text.GetShownText()
+text.GetTextPos()
+text.SetTextX(x)
+text.SetTextY(y)
+text.GetTextSize()
+text.SetTextSize(vector)
+text.GetTextThickness()
+text.SetTextThickness(value)
+text.GetTextAngle()
+text.SetTextAngle(angle)
+text.GetHorizJustify()
+text.SetHorizJustify(value)
+text.GetVertJustify()
+text.SetVertJustify(value)
+text.IsMirrored()
+text.SetMirrored(bool)
+text.SetVisible(bool)
+field.IsKeepUpright()
+field.SetKeepUpright(bool)
+field.GetDrawRotation()
+```
+
+### Nets, Layers, Zones, and Settings
+
+Panelization remaps nets, copies settings, and optionally refills zones:
+
+```python
+netinfo.NetsByName()
+netinfo.NetsByNetcode()
+netinfo.GetNetItem(name_or_code)
+net.GetNetCode()
+item.GetNetname()
+item.SetNetCode(code)
+board.RemoveNative(net_item)
+```
+
+Layer and layer-set support:
+
+```python
+pcbnew.LSET()
+pcbnew.LSET.AllLayersMask()
+pcbnew.LSET.AllCuMask(copper_layer_count)
+lset.Seq()
+lset.AddLayer(layer)
+board.GetEnabledLayers()
+board.SetEnabledLayers(lset)
+```
+
+Zone support:
+
+```python
+zone.Outline()
+zone.GetZoneName()
+zone.SetZoneName(name)
+zone.GetLayerSet()
+zone.SetLayerSet(lset)
+zone.GetAssignedPriority()
+zone.SetAssignedPriority(priority)
+zone.SetFillMode(mode)
+zone.SetHatchGap(value)
+zone.SetHatchOrientation(angle)
+zone.SetHatchThickness(value)
+zone.SetLocalClearance(value)
+zone.SetLocalSolderMaskMargin(value)
+zone.SetIsRuleArea(bool)
+zone.SetDoNotAllowTracks(bool)
+zone.SetDoNotAllowVias(bool)
+```
+
+Board settings and metadata:
+
+```python
+board.GetProperties()
+board.SetProperties(properties)
+board.GetPageSettings()
+board.SetPageSettings(settings)
+board.GetTitleBlock()
+board.SetTitleBlock(title_block)
+design_settings.GetBoardThickness()
+design_settings.SetBoardThickness(value)
+design_settings.GetAuxOrigin()
+design_settings.SetAuxOrigin(point)
+design_settings.CloneFrom(other)
+```
+
+### Advanced or Optional Surface
+
+These APIs appear in KiKit/Kikakuka, but should be treated as explicit optional
+features or delegated to `kicad-cli` where practical:
+
+```python
+pcbnew.ZONE_FILLER(board).Fill(zones)
+pcbnew.GetSettingsManager().LoadProject(path)
+pcbnew.WriteDRCReport(board, output_path, units, strict)
+pcbnew.PLOT_CONTROLLER(board)
+pcbnew.EXCELLON_WRITER(board)
+pcbnew.GERBER_JOBFILE_WRITER(board)
+```
+
+GUI/action-plugin APIs are only needed for KiCad editor plugins and should
+remain unsupported in the offline native backend unless a separate GUI mode is
+explicitly added:
+
+```python
+pcbnew.ActionPlugin
+pcbnew.GetBoard()
+pcbnew.Refresh()
+pcbnew.__file__
+pcbnew.kiface
+```
+
+### Implementation Implication
+
+The compatibility shim should be implemented in terms of native wrapper objects
+that mirror the subset above. It should still avoid exposing raw KiCad pointer
+ownership to Python, but it cannot be only a Pythonic facade if the goal is to
+run existing KiKit/Kikakuka code unchanged.
 
 ## Goal
 
-KiKit/Kikakuka needs to keep working after KiCad removes the legacy SWIG `pcbnew` Python API.
+pybind11-kicad aims to be a headless KiCad Python library, similar in role to
+the legacy SWIG `pcbnew` wrapper, but backed by a maintained pybind11 native
+module and a bundled pinned KiCad engine.
 
-The preferred KiKit/Kikakuka architecture is to bundle a pinned KiCad engine and expose both:
+KiKit and Kikakuka are important compatibility targets, but they are not the
+only intended consumers. The library should be usable by normal Python tools,
+FreeCAD integrations, CI automation, board-generation workflows, and migration
+code that previously imported `pcbnew`.
 
-1. a clean KiKit/Kikakuka-owned Python API, and
+The preferred architecture is to expose both:
+
+1. a clean pybind11-kicad-owned Python API, and
 2. an optional `pcbnew` compatibility layer for old scripts.
 
-This avoids depending on the user’s installed KiCad and avoids IPC for normal file creation/editing workflows.
+This separates two different integration roles:
+
+* KiKit compatibility is KiCad-hosted: when KiKit is used as a KiCad plugin, it
+  runs inside the KiCad process that hosts it.
+* Kikakuka is Kikakuka-controlled: it should drive KiCad board functionality
+  from Kikakuka, FreeCAD, or normal Python without requiring the KiCad GUI or
+  KiCad's bundled Python interpreter.
+
+For headless library use, including Kikakuka-controlled mode, the backend
+should use a bundled pinned KiCad engine and avoid IPC for normal file
+creation/editing workflows.
 
 ## Background
 
@@ -17,43 +459,51 @@ KiCad’s legacy SWIG Python API allowed scripts to import `pcbnew`, load `.kica
 
 KiCad’s official replacement direction is IPC. The KiCad IPC API runs plugins as standalone processes communicating with a KiCad instance, and KiCad 11 adds headless IPC through `kicad-cli api-server`.
 
-KiKit/Kikakuka’s requirement is different:
+This project’s requirement is different:
 
 * no IPC for normal operation
-* no dependency on the user-installed KiCad
+* headless library mode must not depend on a user-installed KiCad or KiCad's
+  bundled Python
+* KiKit's KiCad-hosted plugin mode may still run inside the user's KiCad
+  process when invoked as a KiCad plugin
 * native KiCad file compatibility as much as possible
-* FreeCAD/Python integration
+* FreeCAD/system-Python integration for Kikakuka, using the native backend
+  rather than KiCad's Python runtime
+* Kikakuka headless mode for automation, CI, and non-GUI workflows
 * ability to read/write KiCad board files offline
 * source compatibility with common old `pcbnew` scripts where practical
 
-Therefore, KiKit/Kikakuka will treat KiCad as a bundled private engine.
+Therefore, Kikakuka will treat KiCad as a bundled private engine when it is
+driving board operations itself. KiKit compatibility remains a shim for code
+that expects `pcbnew`, including code that may also run inside a normal
+KiCad-hosted plugin environment.
 
 ## Proposed Architecture
 
 ```text
-KiKit/Kikakuka Python / FreeCAD layer
+Application / FreeCAD / system Python control layer
         ↓
-KiKit/Kikakuka stable Python API
+pybind11-kicad stable Python API
         ↓
 optional pcbnew compatibility shim
         ↓
 pybind11 native module
         ↓
-KiKit/Kikakuka C++ facade
+pybind11-kicad C++ facade
         ↓
 bundled pinned KiCad core
         ↓
 .kicad_pcb / .kicad_mod / .kicad_sch / .kicad_sym
 ```
 
-The pybind11 module must not expose KiCad’s raw C++ API directly. It should expose KiKit/Kikakuka-owned wrapper classes.
+The pybind11 module must not expose KiCad’s raw C++ API directly. It should expose pybind11-kicad-owned wrapper classes.
 
 Good API shape:
 
 ```python
-import kikit_kikakuka.kicad as kk
+import pybind11_kicad as kc
 
-board = kk.Board.open("input.kicad_pcb")
+board = kc.Board.open("input.kicad_pcb")
 
 for fp in board.footprints():
     print(fp.reference, fp.position, fp.layer)
@@ -86,25 +536,24 @@ Avoid exposing raw KiCad internals directly:
 
 ```python
 # Avoid designing the new core API around this style.
-import kikit_kikakuka_pcbnew as pcbnew
+import pybind11_kicad as kc
 
-board = pcbnew.BOARD()
-track = pcbnew.PCB_TRACK(board)
+board = kc.BOARD()
+track = kc.PCB_TRACK(board)
 ```
 
-The goal is not to recreate KiCad’s entire removed SWIG API. The goal is to support the subset needed by KiKit/Kikakuka and common offline board automation scripts.
+The goal is not to recreate KiCad’s entire removed SWIG API. The goal is to support the subset needed by headless board automation, with KiKit/Kikakuka compatibility as a concrete source-derived target.
 
 ## Repository Layout
 
 ```text
-kikit-kikakuka/
+pybind11-kicad/
   python/
     pcbnew.py
       # optional top-level compatibility module
 
-    kikit_kikakuka/
+    pybind11_kicad/
       __init__.py
-      kicad.py
 
       compat/
         __init__.py
@@ -114,7 +563,7 @@ kikit-kikakuka/
     CMakeLists.txt
 
     include/
-      kikit_kikakuka_kicad/
+      pybind11_kicad/
         board.hpp
         footprint.hpp
         pad.hpp
@@ -164,50 +613,75 @@ kikit-kikakuka/
 
 ## Versioning Strategy
 
-KiKit/Kikakuka should version the native backend by bundled KiCad major version.
+pybind11-kicad should version the native backend by bundled KiCad major version.
+The active target for this repository is KiCad 10.
 
 ```text
-kikit-kikakuka-kicad-native-10
+pybind11-kicad-native-10
+  current package/backend name
   uses bundled KiCad 10.x
 
-kikit-kikakuka-kicad-native-11
+pybind11-kicad-native-11
+  future package/backend name
   uses bundled KiCad 11.x
 
-KiKit/Kikakuka public API
+pybind11-kicad public API
   should stay stable above both
 ```
 
 Example:
 
 ```python
-import kikit_kikakuka.kicad as kk
+import pybind11_kicad as kc
 
-print(kk.backend_version())
-# "kicad-11.0.0-kikit-kikakuka-0.1"
+print(kc.backend_version())
+# "kicad-10.0.0-pybind11-kicad-0.1"
 ```
 
 The bundled KiCad version should be pinned exactly:
 
 ```text
 KiCad source commit: <commit hash>
-KiCad version: 11.0.x
-KiKit/Kikakuka native ABI: 0.x
+KiCad version: 10.0.x
+KiCad major target: 10
+pybind11-kicad native ABI: 0.x
 ```
 
-Do not link against arbitrary user-installed KiCad libraries.
+To retarget this repository to a later KiCad major, treat the KiCad major as a
+release-line decision rather than a casual build flag. Until the project grows a
+single generated version source, update these values together:
+
+* `native/CMakeLists.txt`: `PYBIND11_KICAD_TARGET_KICAD_MAJOR` and
+  `PYBIND11_KICAD_BUNDLED_KICAD_VERSION`
+* `pyproject.toml`: the distribution/backend package name, such as
+  `pybind11-kicad-native-10`
+* `python/pybind11_kicad/__init__.py`: `TARGET_KICAD_MAJOR`,
+  `TARGET_KICAD_VERSION`, and native-backend metadata strings
+* `native/src/bindings.cpp`: native-backend version metadata
+* `tests/`: assertions that lock the active KiCad major and backend metadata
+* `README.md`: examples, build paths, and the active target statement
+
+The public Python import should remain `pybind11_kicad` across KiCad majors.
+Only the native backend distribution name should carry the KiCad major, for
+example `pybind11-kicad-native-10`.
+
+Kikakuka-controlled headless mode must not link against arbitrary
+user-installed KiCad libraries. KiKit's KiCad-hosted plugin usage may still be
+hosted by the user's KiCad process, but that is a separate integration mode
+from this native backend.
 
 ## API Layers
 
-KiKit/Kikakuka should provide two public Python layers.
+pybind11-kicad should provide two public Python layers.
 
-### 1. Clean KiKit/Kikakuka API
+### 1. Clean pybind11-kicad API
 
 This is the preferred new API.
 
 ```python
-import kikit_kikakuka.kicad as kk
+import pybind11_kicad as kc
 
-board = kk.Board.open("input.kicad_pcb")
+board = kc.Board.open("input.kicad_pcb")
 board.add_track(...)
 board.save("output.kicad_pcb")
 ```
@@ -237,15 +711,15 @@ This API should be:
 * intentionally partial
 * clearly documented
 * backed by the same bundled KiCad engine
-* implemented on top of the KiKit/Kikakuka facade where possible
+* implemented on top of the pybind11-kicad facade where possible
 
 The compatibility layer should not become the main internal API.
 
 ## `pcbnew` Compatibility Layer
 
-KiKit/Kikakuka provides an optional `pcbnew` compatibility layer for scripts that previously used KiCad’s SWIG Python API.
+pybind11-kicad provides an optional `pcbnew` compatibility layer for scripts that previously used KiCad’s SWIG Python API.
 
-This layer is not the official KiCad `pcbnew` module. It is a KiKit/Kikakuka-maintained compatibility shim backed by the bundled KiCad engine.
+This layer is not the official KiCad `pcbnew` module. It is a pybind11-kicad-maintained compatibility shim backed by the bundled KiCad engine.
 
 The goal is to support common offline board file automation:
 
@@ -254,7 +728,7 @@ The goal is to support common offline board file automation:
 * move footprints
 * add or remove simple board items
 * generate tracks, vias, and drawings
-* run common KiKit/Kikakuka workflows that previously imported `pcbnew`
+* run common workflows, including KiKit/Kikakuka workflows, that previously imported `pcbnew`
 
 The goal is not to fully recreate KiCad’s removed SWIG API.
 
@@ -376,8 +850,8 @@ Example error:
 
 ```python
 raise NotImplementedError(
-    "pcbnew.ZONE_FILLER is not supported by KiKit/Kikakuka's bundled backend. "
-    "Use KiCad CLI/GUI validation or the clean KiKit/Kikakuka API instead."
+    "pcbnew.ZONE_FILLER is not supported by pybind11-kicad's native backend. "
+    "Use KiCad CLI/GUI validation or the clean pybind11-kicad API instead."
 )
 ```
 
@@ -389,7 +863,7 @@ The `pcbnew` shim should identify itself clearly.
 import pcbnew
 
 print(pcbnew.GetBuildVersion())
-# "KiKit/Kikakuka pcbnew compatibility layer, bundled KiCad 11.0.0"
+# "pybind11-kicad pcbnew compatibility layer, bundled KiCad 10.0.0"
 
 print(pcbnew.CompatibilityLevel())
 # "partial-pcbnew-v10"
@@ -466,7 +940,7 @@ Avoid exposing:
 
 The native layer should enforce simple ownership rules.
 
-Recommended model:
+Ownership model:
 
 ```text
 KkBoard owns the KiCad BOARD object.
@@ -489,7 +963,7 @@ Prefer snapshot/value objects for read-only operations where possible.
 
 ## Units
 
-KiCad internal units should not leak into the clean KiKit/Kikakuka API.
+KiCad internal units should not leak into the clean pybind11-kicad API.
 
 Clean API:
 
@@ -584,7 +1058,7 @@ Required:
 * add via
 * add graphic line/arc/circle
 * add board outline geometry
-* remove generated items by KiKit/Kikakuka marker/property
+* remove generated items by marker/property
 
 Clean API:
 
@@ -593,7 +1067,7 @@ fp.move_to((x, y))
 board.add_track(...)
 board.add_via(...)
 board.add_edge_line(...)
-board.remove_items_by_tag("kikit-kikakuka-generated")
+board.remove_items_by_tag("pybind11-kicad-generated")
 ```
 
 Compatibility API:
@@ -662,11 +1136,11 @@ Likely areas:
 Create one explicit initialization point:
 
 ```python
-import kikit_kikakuka.kicad as kk
+import pybind11_kicad as kc
 
-kk.initialize(
+kc.initialize(
     resource_dir="/path/to/bundled/kicad/resources",
-    config_dir="/path/to/kikit-kikakuka/config",
+    config_dir="/path/to/pybind11-kicad/config",
 )
 ```
 
@@ -681,7 +1155,7 @@ Do not rely on the user’s KiCad config directory by default.
 Ship:
 
 ```text
-kikit_kikakuka_kicad_native.pyd
+pybind11_kicad_native.pyd
 bundled KiCad DLLs
 required runtime DLLs
 KiCad resources
@@ -700,7 +1174,7 @@ Key issues:
 Ship:
 
 ```text
-kikit_kikakuka_kicad_native.so
+pybind11_kicad_native.so
 bundled dylibs
 KiCad resources
 ```
@@ -718,7 +1192,7 @@ Key issues:
 Ship:
 
 ```text
-kikit_kikakuka_kicad_native.so
+pybind11_kicad_native.so
 bundled shared libraries where practical
 KiCad resources
 ```
@@ -742,14 +1216,14 @@ High-level targets:
 kicad_engine
   bundled KiCad subset or patched KiCad build
 
-kikit_kikakuka_kicad_core
+pybind11_kicad_core
   C++ facade over KiCad internals
 
-kikit_kikakuka_kicad_native
+pybind11_kicad_native
   pybind11 Python extension
 ```
 
-Avoid spreading KiCad includes throughout KiKit/Kikakuka. Keep KiCad-specific code inside `native/src`.
+Avoid spreading KiCad includes throughout pybind11-kicad. Keep KiCad-specific code inside `native/src`.
 
 Preferred layering:
 
@@ -758,7 +1232,7 @@ Python
   ↓
 pybind11 bindings
   ↓
-KiKit/Kikakuka C++ facade
+pybind11-kicad C++ facade
   ↓
 KiCad adapter implementation
   ↓
@@ -769,14 +1243,15 @@ This makes future KiCad upgrades less painful.
 
 ## Build Configuration
 
-Recommended build options:
+Build options:
 
 ```text
-KIKIT_KIKAKUKA_BUNDLED_KICAD_VERSION=11.0.x
-KIKIT_KIKAKUKA_ENABLE_PCBNEW_COMPAT=ON
-KIKIT_KIKAKUKA_ENABLE_IPC=OFF
-KIKIT_KIKAKUKA_ENABLE_KICAD_CLI_VALIDATION=OPTIONAL
-KIKIT_KIKAKUKA_ENABLE_GUI=OFF
+PYBIND11_KICAD_TARGET_KICAD_MAJOR=10
+PYBIND11_KICAD_BUNDLED_KICAD_VERSION=10.0.x
+PYBIND11_KICAD_ENABLE_PCBNEW_COMPAT=ON
+PYBIND11_KICAD_ENABLE_IPC=OFF
+PYBIND11_KICAD_ENABLE_KICAD_CLI_VALIDATION=OPTIONAL
+PYBIND11_KICAD_ENABLE_GUI=OFF
 ```
 
 The first proof of concept should avoid GUI/editor functionality.
@@ -791,7 +1266,7 @@ For each fixture:
 2. save to temp file
 3. open saved file in bundled KiCad backend
 4. compare expected structural content
-5. optionally compare normalized S-expression
+5. optionally compare normalized KiCad board text
 
 Test files:
 
@@ -809,7 +1284,7 @@ custom_properties.kicad_pcb
 
 For every bundled KiCad update:
 
-* open files created by previous KiKit/Kikakuka versions
+* open files created by previous pybind11-kicad versions
 * open files saved by official KiCad
 * save files and verify official KiCad can open them
 * compare generated diffs
@@ -817,7 +1292,7 @@ For every bundled KiCad update:
 
 ### Python API Tests
 
-Test the stable KiKit/Kikakuka API, not KiCad internals.
+Test the stable pybind11-kicad API, not KiCad internals.
 
 Example:
 
@@ -890,29 +1365,6 @@ Optional but useful:
 
 This can be CI optional because it may require a full KiCad runtime.
 
-## Fallback Direct S-expression Backend
-
-Even with a native KiCad backend, KiKit/Kikakuka should keep a simple direct S-expression backend for emergency use.
-
-Purpose:
-
-* inspect files without initializing KiCad
-* simple patching
-* debugging output
-* preserving unknown fields
-* fallback if native backend fails
-* golden-file normalization
-
-Architecture:
-
-```text
-KiKit/Kikakuka API
-  ├─ native KiCad backend
-  └─ direct S-expression backend
-```
-
-The direct S-expression backend does not need to emulate KiCad. It only needs to support narrow file editing/debugging tasks.
-
 ## Migration Strategy from Old `pcbnew`
 
 Existing scripts should be migrated in stages.
@@ -945,7 +1397,7 @@ pcbnew.GetPcbFrame()
 Error:
 
 ```text
-NotImplementedError: pcbnew.GetPcbFrame is not supported by KiKit/Kikakuka's offline backend.
+NotImplementedError: pcbnew.GetPcbFrame is not supported by pybind11-kicad's native backend.
 This API requires KiCad GUI/editor state.
 ```
 
@@ -954,9 +1406,9 @@ This API requires KiCad GUI/editor state.
 New code should prefer:
 
 ```python
-import kikit_kikakuka.kicad as kk
+import pybind11_kicad as kc
 
-board = kk.Board.open("input.kicad_pcb")
+board = kc.Board.open("input.kicad_pcb")
 for fp in board.footprints():
     print(fp.reference)
 board.save("output.kicad_pcb")
@@ -969,7 +1421,7 @@ board.save("output.kicad_pcb")
 Mitigation:
 
 * pin bundled KiCad version
-* hide raw KiCad API behind KiKit/Kikakuka facade
+* hide raw KiCad API behind the pybind11-kicad facade
 * treat every KiCad major version as a porting task
 
 ### Risk: KiCad Is Not a Supported Library
@@ -979,7 +1431,7 @@ Mitigation:
 * keep native backend narrow
 * avoid UI/editor objects
 * focus on file IO and board object manipulation
-* add direct S-expression fallback
+* fail clearly when bundled KiCad initialization is unavailable
 
 ### Risk: Build and Packaging Complexity
 
@@ -990,14 +1442,6 @@ Mitigation:
 * keep exact dependency versions pinned
 * avoid system KiCad dependencies
 
-### Risk: GPL Licensing
-
-Mitigation:
-
-* treat native module linked with KiCad as GPL-compatible
-* provide corresponding source when distributing binaries
-* keep licensing clear in documentation
-
 ### Risk: Recreating Full `pcbnew`
 
 Mitigation:
@@ -1006,7 +1450,7 @@ Mitigation:
 * define compatibility tiers
 * expose only commonly needed offline APIs first
 * make unsupported calls fail clearly
-* keep clean KiKit/Kikakuka API as the real core API
+* keep the clean pybind11-kicad API as the real core API
 
 ### Risk: Full KiCad Behavior Is Hard to Embed
 
@@ -1021,23 +1465,44 @@ Mitigation:
 The native backend is not intended to:
 
 * provide a full replacement for KiCad’s old `pcbnew` API
-* support arbitrary user-installed KiCad versions
+* make Kikakuka-controlled headless mode depend on arbitrary user-installed
+  KiCad versions
 * expose KiCad internals directly to Python
 * become a general KiCad SDK
 * replace KiCad IPC for normal KiCad plugins
+* maintain an alternate direct `.kicad_pcb` parser or board-file backend
 * reimplement the full KiCad editor
 * support KiCad GUI action plugins in offline mode
 
-## Recommended First Milestone
+## Milestone Status
+
+### Implemented: Native Scaffold and Import Surface
+
+The current repository has completed the initial scaffold milestone:
+
+* Python package metadata exists for Python 3.14.
+* The native C++ facade target builds as `pybind11_kicad_core`.
+* The pybind11 extension target builds as `pybind11_kicad_native`.
+* `import pybind11_kicad` works.
+* top-level `import pcbnew` works through the compatibility shim.
+* compatibility metadata and unit helpers are present.
+* missing or unwired native board IO fails clearly.
+* there is no alternate direct `.kicad_pcb` parser or board-file backend.
+
+This milestone does not implement real board IO yet. `Board.open()` and
+`pcbnew.LoadBoard()` intentionally fail until the bundled KiCad engine is wired
+into the native module.
+
+### Next: Native Board IO
 
 Build a minimal proof of concept:
 
 ```python
-import kikit_kikakuka.kicad as kk
+import pybind11_kicad as kc
 
-kk.initialize()
+kc.initialize()
 
-board = kk.Board.open("input.kicad_pcb")
+board = kc.Board.open("input.kicad_pcb")
 print(board.footprints())
 board.save("output.kicad_pcb")
 ```
@@ -1046,13 +1511,15 @@ Success criteria:
 
 * native module imports in Python
 * bundled KiCad code initializes without GUI
+* Kikakuka can use the backend in headless mode from normal Python
 * `.kicad_pcb` can be opened
 * footprints can be listed
 * board can be saved
 * saved board can be opened by official KiCad
-* no dependency on user-installed KiCad
+* Kikakuka-controlled headless mode does not require user-installed KiCad,
+  KiCad GUI, or KiCad's bundled Python
 
-## Recommended Second Milestone
+### Later: `pcbnew` Board Compatibility
 
 Add `pcbnew` compatibility for open/save/list footprints:
 
@@ -1069,13 +1536,13 @@ board.Save("output.kicad_pcb")
 
 Success criteria:
 
-* old-style import works
+* old-style import works (already implemented)
 * common old scripts can open a board
 * footprints can be inspected
 * board can be saved
 * unsupported GUI calls fail clearly
 
-## Recommended Third Milestone
+### Later: Generated Geometry
 
 Add simple generated geometry:
 
@@ -1109,26 +1576,26 @@ Success criteria:
 
 ## Decision Summary
 
-KiKit/Kikakuka will use:
+pybind11-kicad will use:
 
 ```text
-pybind11 + bundled pinned KiCad + KiKit/Kikakuka-owned facade API
+pybind11 + bundled pinned KiCad + pybind11-kicad-owned facade API
 ```
 
-KiKit/Kikakuka will also provide:
+pybind11-kicad will also provide:
 
 ```text
 optional pcbnew compatibility shim for common old scripts
 ```
 
-KiKit/Kikakuka will avoid:
+pybind11-kicad will avoid:
 
 ```text
 pybind11 directly exposing KiCad's raw C++ API
-linking against user-installed KiCad
+making Kikakuka-controlled headless mode link against user-installed KiCad
 depending on IPC for normal offline file operations
 trying to recreate the full old pcbnew API
 using the compatibility shim as the primary internal API
 ```
 
-This is not KiCad’s officially supported integration model, but it is a reasonable self-contained architecture because KiKit/Kikakuka controls and bundles the KiCad engine version.
+This is not KiCad’s officially supported integration model, but it is a reasonable self-contained architecture for Kikakuka-controlled headless mode because Kikakuka controls and bundles the KiCad engine version. KiKit's KiCad-hosted plugin mode remains conceptually separate: it is hosted by KiCad when invoked inside KiCad.

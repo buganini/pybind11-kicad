@@ -1,0 +1,44 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Python packaging/build output
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# CMake/native build output
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+Makefile
+build-*/
+cmake-build-*/
+native/build/
+native/build-*/
+native/cmake-build-*/
+
+# Local editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local scratch files
+.env
+.env.*
+tmp/
+temp/
