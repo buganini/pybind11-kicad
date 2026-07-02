@@ -16,7 +16,7 @@ class PcbnewCompatTests(unittest.TestCase):
         self.assertIn("native", message)
         self.assertTrue(
             "alternate board-file implementation" in message
-            or "pinned kicad engine" in message
+            or "target kicad" in message
         )
 
     def test_pcbnew_units_and_metadata(self):

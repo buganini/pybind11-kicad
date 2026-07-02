@@ -25,6 +25,7 @@ else:
 
 @dataclass(frozen=True)
 class RuntimeConfig:
+    kicad_dir: str | None = None
     resource_dir: str | None = None
     config_dir: str | None = None
 
@@ -34,7 +35,11 @@ TARGET_KICAD_MAJOR = 10
 TARGET_KICAD_VERSION = "10.0.x"
 
 
-def initialize(resource_dir: str | None = None, config_dir: str | None = None) -> RuntimeConfig:
+def initialize(
+    kicad_dir: str | None = None,
+    resource_dir: str | None = None,
+    config_dir: str | None = None,
+) -> RuntimeConfig:
     """Initialize the backend runtime.
 
     This records the requested paths for the Python API and forwards them to
@@ -42,9 +47,17 @@ def initialize(resource_dir: str | None = None, config_dir: str | None = None) -
     """
 
     global _runtime_config
-    _runtime_config = RuntimeConfig(resource_dir=resource_dir, config_dir=config_dir)
+    _runtime_config = RuntimeConfig(
+        kicad_dir=kicad_dir,
+        resource_dir=resource_dir,
+        config_dir=config_dir,
+    )
     if _native is not None and hasattr(_native, "initialize"):
-        _native.initialize(resource_dir=resource_dir, config_dir=config_dir)
+        _native.initialize(
+            kicad_dir=kicad_dir,
+            resource_dir=resource_dir,
+            config_dir=config_dir,
+        )
     return _runtime_config
 
 

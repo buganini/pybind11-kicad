@@ -1,1 +1,1 @@
-"""Compatibility layers for legacy APIs."""
+"""Compatibility layers for existing KiCad-style APIs."""

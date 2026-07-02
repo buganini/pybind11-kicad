@@ -9,8 +9,13 @@ FIXTURE = Path(__file__).parent / "golden" / "simple_board.kicad_pcb"
 
 class CleanApiTests(unittest.TestCase):
     def test_initialize_and_backend_version(self):
-        config = kk.initialize(resource_dir="/tmp/kicad-resources", config_dir="/tmp/kikit-config")
+        config = kk.initialize(
+            kicad_dir="/tmp/kicad",
+            resource_dir="/tmp/kicad-resources",
+            config_dir="/tmp/kikit-config",
+        )
 
+        self.assertEqual(config.kicad_dir, "/tmp/kicad")
         self.assertEqual(config.resource_dir, "/tmp/kicad-resources")
         self.assertEqual(kk.runtime_config().config_dir, "/tmp/kikit-config")
         self.assertEqual(kk.target_kicad_major(), 10)
@@ -24,7 +29,7 @@ class CleanApiTests(unittest.TestCase):
         self.assertIn("native", message)
         self.assertTrue(
             "alternate board-file implementation" in message
-            or "pinned kicad engine" in message
+            or "target kicad" in message
         )
 
 

@@ -1,4 +1,4 @@
-"""Partial legacy ``pcbnew`` compatibility shim over the native backend."""
+"""Partial ``pcbnew`` compatibility shim over the native backend."""
 
 from __future__ import annotations
 

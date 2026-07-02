@@ -10,8 +10,9 @@ namespace {
 [[noreturn]] void native_backend_unavailable()
 {
     throw BackendUnavailableError(
-        "The bundled KiCad native backend is not wired yet. "
-        "Add the pinned KiCad engine before enabling board IO.");
+        "The target KiCad native backend is not wired yet. "
+        "Install a supported target KiCad and wire the installed-KiCad adapter "
+        "before enabling board IO.");
 }
 
 }  // namespace
