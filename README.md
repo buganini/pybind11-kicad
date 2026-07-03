@@ -10,13 +10,20 @@ This repository now contains the first executable proof-of-concept slice:
   source resolver, KiCad-backed board IO adapter, and CMake glue for injecting
   the adapter into a KiCad build graph.
 * `scripts/build.sh` is the reproducible entry point for building pinned
-  KiCad, `kicad-cli`, and the KiCad-linked native backend.
+  KiCad and the KiCad-linked native backend.
 * `tests/` verifies the Python import surface, compatibility metadata, unit
   helpers, clear native-backend failure for scaffold builds without board IO,
   and real board open/save behavior when the KiCad-backed backend is linked.
 * the current target is pinned to [KiCad 10.0.4](#versioning-strategy), and the
   distribution/backend major-version name is `pybind11-kicad-native-10`.
 * the current target Python version is [Python 3.14](#versioning-strategy).
+
+## Project Process
+
+This project is human-directed and AI-coded. The human maintainer sets the
+goals, technical direction, acceptance criteria, and final review decisions;
+AI systems perform much of the implementation and documentation work under
+that direction.
 
 ## License
 
@@ -26,8 +33,7 @@ See `LICENSE`.
 ## Build And Test
 
 Use this path for normal development. With no subcommand,
-`scripts/build.sh` builds KiCad, `kicad-cli`, and the pybind11-kicad
-native module:
+`scripts/build.sh` builds pinned KiCad and the pybind11-kicad native module:
 
 ```sh
 scripts/build.sh
@@ -44,8 +50,8 @@ scripts/build.sh kicad
 ```
 
 This fetches or reuses `tmp/kicad`, verifies the pinned KiCad commit,
-configures KiCad, and builds the KiCad executable plus `kicad-cli`. The CLI
-binary is written under `tmp/pybind11-kicad-10-build/kicad/kicad-cli`.
+configures KiCad, and builds the KiCad executable set, including
+`tmp/pybind11-kicad-10-build/kicad/kicad-cli`.
 
 Build pybind11-kicad:
 
@@ -87,7 +93,8 @@ uses the same subcommand before running the repository test suite.
 * configures KiCad as the top-level CMake project
 * adds `native/` at the end of that KiCad configure pass with
   `CMAKE_PROJECT_TOP_LEVEL_INCLUDES` and `cmake_language(DEFER)`
-* builds the KiCad executable and `kicad-cli` from the pinned source tree
+* builds KiCad from the pinned source tree, including the command-line
+  executable
 * builds `pybind11_kicad_native` against KiCad's internal headless board/common
   IO targets instead of the full `pcbnew` editor kiface
 * runs Python with the checkout package and built native module importable when
@@ -227,10 +234,16 @@ Kikakuka immediately calls `pcbnew.LoadBoard`, so real Kikakuka panel workflows
 require the KiCad-backed board IO adapter and any additional `pcbnew` API they
 touch.
 
-Current Kikakuka smoke status: the script reaches `pcbnew.LoadBoard()` with the
-KiCad-backed backend, then stops at `BOARD.GetDrawings()`. The next compatibility
-slice should expose board drawing objects with at least `GetLayer()`,
-`GetWidth()`, and `GetBoundingBox()` for Edge.Cuts outline discovery.
+Current Kikakuka smoke status: the `L7.kikit_pnl` smoke path runs through
+`pcbnew.LoadBoard()`, panel construction, native text/drawing creation, and
+`out.kicad_pcb` generation with the KiCad-backed backend. The current run still
+prints nonfatal Kikakuka/Shapely tab-substrate diagnostics for that sample, so
+future compatibility work should distinguish sample tab-placement warnings from
+hard missing-API failures.
+
+For local comparison, generate a SWIG-wrapper reference output with the same
+Kikakuka sample and keep it as an ignored workspace artifact, not a committed
+fixture.
 
 ## Technical Decision: Single Native Backend
 
@@ -624,7 +637,10 @@ Existing `pcbnew`-based automation expects to import `pcbnew`, load
 `.kicad_pcb` files, manipulate board objects, and save the result without
 running the KiCad GUI.
 
-KiCad’s official replacement direction is IPC. The KiCad IPC API runs plugins as standalone processes communicating with a KiCad instance, and KiCad 11 adds headless IPC through `kicad-cli api-server`.
+KiCad’s official replacement direction is IPC. The KiCad IPC API runs plugins as
+standalone processes communicating with a KiCad instance, but KiCad 11 does not
+provide the headless board-editing mode this project needs for offline
+automation.
 
 This project’s requirement is different:
 
@@ -950,10 +966,15 @@ board.GetFootprints()
 board.GetTracks()
 board.GetDrawings()
 board.GetZones()
+board.Zones()
 board.GetNetsByName()
+board.GetPads()
+board.GetDesignSettings()
 board.FindFootprintByReference("U1")
 board.GetLayerName(layer_id)
 board.GetLayerID("F.Cu")
+board.Add(item)
+board.Remove(item)
 
 fp.GetReference()
 fp.SetReference("U1")
@@ -993,6 +1014,7 @@ pcbnew.ToMM(value)
 
 pcbnew.PCB_TRACK(board)
 pcbnew.PCB_VIA(board)
+pcbnew.ZONE_FILLER(board).Fill([])
 ```
 
 ### Tier 2: Useful but Later
@@ -1000,13 +1022,9 @@ pcbnew.PCB_VIA(board)
 These can be implemented after the common flow works.
 
 ```python
-board.Add(item)
-board.Remove(item)
-board.GetDesignSettings()
 board.GetBoardEdgesBoundingBox()
-board.GetPads()
 board.GetAreaCount()
-board.Zones()
+pcbnew.ZONE_FILLER(board).Fill(non_empty_zones)
 
 fp.GetFPID()
 fp.GetPath()
@@ -1019,12 +1037,16 @@ zone.GetLayerSet()
 zone.GetAssignedPriority()
 ```
 
+`ZONE_FILLER` currently exists only as an empty-zone no-op so KiKit save flows
+that construct a filler unconditionally can continue. Filling real/non-empty
+zone collections must be backed by native KiCad zone filling or a delegated
+`kicad-cli` flow before it is considered supported.
+
 ### Tier 3: Explicitly Unsupported or Stubbed
 
 These should raise clear errors rather than silently doing the wrong thing.
 
 ```python
-pcbnew.ZONE_FILLER
 pcbnew.DRC
 pcbnew.PLOT_CONTROLLER
 pcbnew.ActionPlugin
@@ -1037,8 +1059,7 @@ Example error:
 
 ```python
 raise NotImplementedError(
-    "pcbnew.ZONE_FILLER is not supported by pybind11-kicad's native backend. "
-    "Use KiCad CLI/GUI validation or the clean pybind11-kicad API instead."
+    "pcbnew.DRC is not supported by pybind11-kicad's native backend"
 )
 ```
 
@@ -1697,8 +1718,8 @@ milestones:
 * top-level `import pcbnew` works through the compatibility shim.
 * compatibility metadata and unit helpers are present.
 * the build downloads or validates the pinned KiCad 10.0.4 source.
-* `scripts/build.sh` reproducibly builds pinned KiCad, `kicad-cli`, and
-  the KiCad-backed native module against KiCad 10.0.4 source and Python 3.14.
+* `scripts/build.sh` reproducibly builds pinned KiCad and the KiCad-backed
+  native module against KiCad 10.0.4 source and Python 3.14.
 * the linked backend reports
   `kicad-10.0.4-native-pybind11-kicad-0.1`.
 * `Board.open()`, `Board.save()`, `pcbnew.LoadBoard()`, and `BOARD.Save()` work

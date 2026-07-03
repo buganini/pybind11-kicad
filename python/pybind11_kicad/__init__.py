@@ -87,6 +87,15 @@ def native_import_error() -> ImportError | None:
     return _native_import_error
 
 
+def load_footprint(
+    library_path: str | Path,
+    footprint_name: str,
+    preserve_uuid: bool = False,
+) -> Any:
+    native = _require_native()
+    return native.load_footprint(str(library_path), footprint_name, bool(preserve_uuid))
+
+
 class Board:
     """Python facade for the native KiCad board object."""
 
@@ -98,11 +107,219 @@ class Board:
         native = _require_native()
         return cls(native.Board.open(str(path)))
 
+    @classmethod
+    def create(cls, path: str | Path) -> "Board":
+        native = _require_native()
+        return cls(native.Board.create(str(path)))
+
     def save(self, path: str | Path) -> None:
         self._native_board.save(str(path))
 
+    def design_settings(self) -> Any:
+        return self._native_board.design_settings()
+
+    def set_board_thickness(self, thickness: int) -> None:
+        self._native_board.set_board_thickness(thickness)
+
+    def set_aux_origin(self, origin: tuple[int, int]) -> None:
+        self._native_board.set_aux_origin(_native_int_point(origin))
+
+    def copper_layer_count(self) -> int:
+        return self._native_board.copper_layer_count()
+
+    def set_copper_layer_count(self, count: int) -> None:
+        self._native_board.set_copper_layer_count(count)
+
+    def enabled_layers(self) -> list[int]:
+        return list(self._native_board.enabled_layers())
+
+    def set_enabled_layers(self, layers: list[int]) -> None:
+        self._native_board.set_enabled_layers(layers)
+
+    def get_layer_name(self, layer_id: int) -> str:
+        return self._native_board.get_layer_name(layer_id)
+
+    def get_layer_id(self, name: str) -> int:
+        return self._native_board.get_layer_id(name)
+
+    def set_layer_name(self, layer_id: int, name: str) -> bool:
+        return self._native_board.set_layer_name(layer_id, name)
+
+    def drawings(self) -> list[Any]:
+        return self._native_board.drawings()
+
+    def zones(self) -> list[Any]:
+        return self._native_board.zones()
+
+    def tracks(self) -> list[Any]:
+        return self._native_board.tracks()
+
+    def vias(self) -> list[Any]:
+        return self._native_board.vias()
+
     def footprints(self) -> list[Any]:
         return self._native_board.footprints()
+
+    def add_drawing(
+        self,
+        *,
+        layer: int,
+        shape: int,
+        width: int,
+        start: tuple[int, int],
+        end: tuple[int, int],
+        center: tuple[int, int] = (0, 0),
+        mid: tuple[int, int] | None = None,
+        radius: int = 0,
+        filled: bool = False,
+        polygon_points: list[tuple[int, int]] | None = None,
+    ) -> None:
+        native = _require_native()
+        drawing = native.Drawing()
+        drawing.layer = int(layer)
+        drawing.shape = int(shape)
+        drawing.width = int(width)
+        drawing.start = _native_int_point(start)
+        drawing.end = _native_int_point(end)
+        drawing.center = _native_int_point(center)
+        drawing.mid = _native_int_point(mid if mid is not None else center)
+        drawing.radius = int(radius)
+        drawing.filled = bool(filled)
+        drawing.polygon_points = [_native_int_point(point) for point in (polygon_points or [])]
+        self._native_board.add_drawing(drawing)
+
+    def remove_drawing(
+        self,
+        *,
+        layer: int,
+        shape: int,
+        width: int,
+        start: tuple[int, int],
+        end: tuple[int, int],
+        center: tuple[int, int] = (0, 0),
+        mid: tuple[int, int] | None = None,
+        radius: int = 0,
+        filled: bool = False,
+        polygon_points: list[tuple[int, int]] | None = None,
+    ) -> bool:
+        native = _require_native()
+        drawing = native.Drawing()
+        drawing.layer = int(layer)
+        drawing.shape = int(shape)
+        drawing.width = int(width)
+        drawing.start = _native_int_point(start)
+        drawing.end = _native_int_point(end)
+        drawing.center = _native_int_point(center)
+        drawing.mid = _native_int_point(mid if mid is not None else center)
+        drawing.radius = int(radius)
+        drawing.filled = bool(filled)
+        drawing.polygon_points = [_native_int_point(point) for point in (polygon_points or [])]
+        return bool(self._native_board.remove_drawing(drawing))
+
+    def add_npth_hole(
+        self,
+        *,
+        reference: str,
+        position: tuple[int, int],
+        drill_size: tuple[int, int],
+        size: tuple[int, int],
+        orientation_degrees: float = 0.0,
+    ) -> None:
+        native = _require_native()
+        spec = native.NpthSpec()
+        spec.reference = reference
+        spec.position = _native_int_point(position)
+        spec.drill_size = _native_int_point(drill_size)
+        spec.size = _native_int_point(size)
+        spec.orientation_degrees = float(orientation_degrees)
+        self._native_board.add_npth_hole(spec)
+
+    def add_footprint(
+        self,
+        *,
+        reference: str,
+        value: str,
+        fpid: str,
+        layer: int,
+        position: tuple[int, int],
+        orientation_degrees: float,
+        reference_visible: bool,
+        value_visible: bool,
+        fields: list[tuple[str, str, bool]] | None = None,
+    ) -> None:
+        native = _require_native()
+        spec = native.FootprintSpec()
+        spec.reference = reference
+        spec.value = value
+        spec.fpid = fpid
+        spec.layer = int(layer)
+        spec.position = _native_int_point(position)
+        spec.orientation_degrees = float(orientation_degrees)
+        spec.reference_visible = bool(reference_visible)
+        spec.value_visible = bool(value_visible)
+        spec.fields = [
+            _native_footprint_field_spec(name, value, visible)
+            for name, value, visible in (fields or [])
+        ]
+        self._native_board.add_footprint(spec)
+
+    def add_footprint_native(self, spec: Any) -> None:
+        self._native_board.add_footprint(spec)
+
+    def add_footprint_clone(self, source: Any, spec: Any) -> None:
+        self._native_board.add_footprint_clone(source, spec)
+
+    def add_text(
+        self,
+        *,
+        text: str,
+        layer: int,
+        position: tuple[int, int],
+        size: tuple[int, int],
+        thickness: int,
+        angle_degrees: float,
+        h_justify: int,
+        v_justify: int,
+        mirrored: bool,
+    ) -> None:
+        spec = _native_text_spec(
+            text=text,
+            layer=layer,
+            position=position,
+            size=size,
+            thickness=thickness,
+            angle_degrees=angle_degrees,
+            h_justify=h_justify,
+            v_justify=v_justify,
+            mirrored=mirrored,
+        )
+        self._native_board.add_text(spec)
+
+    def remove_text(
+        self,
+        *,
+        text: str,
+        layer: int,
+        position: tuple[int, int],
+        size: tuple[int, int],
+        thickness: int,
+        angle_degrees: float,
+        h_justify: int,
+        v_justify: int,
+        mirrored: bool,
+    ) -> bool:
+        spec = _native_text_spec(
+            text=text,
+            layer=layer,
+            position=position,
+            size=size,
+            thickness=thickness,
+            angle_degrees=angle_degrees,
+            h_justify=h_justify,
+            v_justify=v_justify,
+            mirrored=mirrored,
+        )
+        return bool(self._native_board.remove_text(spec))
 
     def add_track(
         self,
@@ -129,7 +346,9 @@ class Board:
         position: tuple[float, float],
         drill: float,
         diameter: float,
+        layers: tuple[str, ...] = ("F.Cu", "B.Cu"),
     ) -> None:
+        _ = layers
         native = _require_native()
         spec = native.ViaSpec()
         spec.net = net
@@ -138,6 +357,18 @@ class Board:
         spec.diameter_mm = diameter
         self._native_board.add_via(spec)
 
+    def add_track_item(self, spec: Any) -> None:
+        self._native_board.add_track_item(spec)
+
+    def add_via_item(self, spec: Any) -> None:
+        self._native_board.add_via_item(spec)
+
+    def add_zone_item(self, spec: Any) -> None:
+        self._native_board.add_zone_item(spec)
+
+    def nets(self) -> Any:
+        return self._native_board.nets()
+
 
 def _native_point(position: tuple[float, float]) -> Any:
     native = _require_native()
@@ -145,6 +376,49 @@ def _native_point(position: tuple[float, float]) -> Any:
     point.x_mm = position[0]
     point.y_mm = position[1]
     return point
+
+
+def _native_int_point(position: tuple[int, int]) -> Any:
+    native = _require_native()
+    point = native.IntPoint()
+    point.x = int(position[0])
+    point.y = int(position[1])
+    return point
+
+
+def _native_footprint_field_spec(name: str, value: str, visible: bool) -> Any:
+    native = _require_native()
+    spec = native.FootprintFieldSpec()
+    spec.name = name
+    spec.value = value
+    spec.visible = bool(visible)
+    return spec
+
+
+def _native_text_spec(
+    *,
+    text: str,
+    layer: int,
+    position: tuple[int, int],
+    size: tuple[int, int],
+    thickness: int,
+    angle_degrees: float,
+    h_justify: int,
+    v_justify: int,
+    mirrored: bool,
+) -> Any:
+    native = _require_native()
+    spec = native.TextSpec()
+    spec.text = text
+    spec.layer = int(layer)
+    spec.position = _native_int_point(position)
+    spec.size = _native_int_point(size)
+    spec.thickness = int(thickness)
+    spec.angle_degrees = float(angle_degrees)
+    spec.h_justify = int(h_justify)
+    spec.v_justify = int(v_justify)
+    spec.mirrored = bool(mirrored)
+    return spec
 
 
 def _require_native() -> Any:
@@ -165,6 +439,7 @@ __all__ = [
     "TARGET_KICAD_VERSION",
     "backend_version",
     "initialize",
+    "load_footprint",
     "native_available",
     "native_import_error",
     "runtime_config",

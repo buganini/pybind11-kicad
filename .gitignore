@@ -43,3 +43,9 @@ native/cmake-build-*/
 .env.*
 tmp/
 temp/
+
+# Local KiCad/Kikakuka smoke outputs
+/out.kicad_*
+/sw.kicad_*
+/swig_out.kicad_*
+/~*.kicad_pcb.lck
