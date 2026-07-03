@@ -1,5 +1,18 @@
 # pybind11-kicad Headless KiCad Library Plan
 
+## Experimental Scope
+
+This is an experimental project. It is not the official replacement for KiCad's
+legacy SWIG `pcbnew` Python API.
+
+KiCad's official replacement direction for the SWIG API is the KiCad IPC API.
+For official headless operation, use `kicad-cli api-server` and communicate
+through that IPC API.
+
+pybind11-kicad explores a different architecture: a pinned, self-built,
+KiCad-linked native Python backend for offline library-style board workflows and
+`pcbnew` compatibility experiments.
+
 ## Current Repository Status
 
 This repository now contains the first executable proof-of-concept slice:
@@ -17,6 +30,9 @@ This repository now contains the first executable proof-of-concept slice:
 * the current target is pinned to [KiCad 10.0.4](#versioning-strategy), and the
   distribution/backend major-version name is `pybind11-kicad-native-10`.
 * the current target Python version is [Python 3.14](#versioning-strategy).
+
+See [docs/api/index.md](docs/api/index.md) for the current API documentation
+entry point.
 
 ## Project Process
 
@@ -637,10 +653,9 @@ Existing `pcbnew`-based automation expects to import `pcbnew`, load
 `.kicad_pcb` files, manipulate board objects, and save the result without
 running the KiCad GUI.
 
-KiCad’s official replacement direction is IPC. The KiCad IPC API runs plugins as
-standalone processes communicating with a KiCad instance, but KiCad 11 does not
-provide the headless board-editing mode this project needs for offline
-automation.
+KiCad's official replacement direction for the legacy SWIG API is the KiCad IPC
+API. The official headless entry point is `kicad-cli api-server`, which exposes
+KiCad functionality through that IPC API.
 
 This project’s requirement is different:
 

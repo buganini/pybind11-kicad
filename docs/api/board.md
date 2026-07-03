@@ -1,0 +1,222 @@
+# Board API
+
+Import the clean API as:
+
+```python
+import pybind11_kicad as kc
+```
+
+The clean API is a thin Python facade over the native KiCad-backed module. It
+does not provide a fallback `.kicad_pcb` parser.
+
+## Runtime
+
+```python
+kc.TARGET_KICAD_MAJOR
+kc.TARGET_KICAD_VERSION
+kc.target_kicad_major()
+kc.target_kicad_version()
+kc.backend_version()
+kc.native_available()
+kc.native_import_error()
+```
+
+`kc.initialize()` records runtime path hints and forwards them to the native
+module once native initialization exists:
+
+```python
+kc.initialize(
+    kicad_dir=None,
+    resource_dir=None,
+    config_dir=None,
+)
+```
+
+If the native extension is missing, board IO raises `BackendUnavailableError`.
+This is intentional: there is one board-file implementation, and failures should
+point at that implementation.
+
+## Boards
+
+```python
+board = kc.Board.open("input.kicad_pcb")
+board.save("output.kicad_pcb")
+
+new_board = kc.Board.create("new.kicad_pcb")
+```
+
+Inspection methods:
+
+```python
+board.design_settings()
+board.copper_layer_count()
+board.enabled_layers()
+board.get_layer_name(layer_id)
+board.get_layer_id(layer_name)
+board.nets()
+board.drawings()
+board.footprints()
+board.tracks()
+board.vias()
+board.zones()
+```
+
+Mutation methods:
+
+```python
+board.set_board_thickness(thickness_iu)
+board.set_aux_origin((x_iu, y_iu))
+board.set_copper_layer_count(count)
+board.set_enabled_layers([layer_ids])
+board.set_layer_name(layer_id, name)
+```
+
+## Coordinates And Units
+
+The current API exposes both KiCad internal units and millimetres, depending on
+the operation.
+
+* Integer point tuples such as `(x, y)` are KiCad internal units.
+* `Point` objects returned by native reads expose `x_mm` and `y_mm`.
+* `add_track()` and `add_via()` currently accept millimetre values.
+* `add_drawing()`, `add_text()`, and footprint field specs currently use KiCad
+  internal units.
+
+This mixed unit surface reflects the current bring-up state. New API additions
+should make units explicit in names or types.
+
+## Drawings And Text
+
+Add a drawing with a native drawing spec:
+
+```python
+board.add_drawing(
+    layer=25,
+    shape=0,
+    width=100_000,
+    start=(0, 0),
+    end=(10_000_000, 0),
+)
+```
+
+Remove matching drawing geometry:
+
+```python
+removed = board.remove_drawing(
+    layer=25,
+    shape=0,
+    width=100_000,
+    start=(0, 0),
+    end=(10_000_000, 0),
+)
+```
+
+Add text:
+
+```python
+board.add_text(
+    text="V-CUT",
+    layer=19,
+    position=(0, 1_000_000),
+    size=(2_000_000, 2_000_000),
+    thickness=400_000,
+    angle_degrees=90,
+    h_justify=0,
+    v_justify=0,
+    mirrored=False,
+)
+```
+
+## Tracks And Vias
+
+The convenience track/via methods use millimetres:
+
+```python
+board.add_track(
+    net="GND",
+    layer="F.Cu",
+    start=(0.0, 0.0),
+    end=(10.0, 0.0),
+    width=0.25,
+)
+
+board.add_via(
+    net="GND",
+    position=(5.0, 5.0),
+    drill=0.3,
+    diameter=0.6,
+)
+```
+
+Native item specs can also be passed through:
+
+```python
+board.add_track_item(track_spec)
+board.add_via_item(via_spec)
+```
+
+## Footprints, Pads, And Fields
+
+Load a footprint from a KiCad footprint library:
+
+```python
+footprint = kc.load_footprint("path/to/library.pretty", "FootprintName")
+```
+
+Create a basic footprint through the convenience wrapper:
+
+```python
+board.add_footprint(
+    reference="R1",
+    value="10k",
+    fpid="Resistor_SMD:R_0603_1608Metric",
+    layer=0,
+    position=(3_000_000, 4_000_000),
+    orientation_degrees=45,
+    reference_visible=True,
+    value_visible=False,
+    fields=[("LCSC", "C123", False)],
+)
+```
+
+For full compatibility behavior, pass the native `FootprintSpec` object through
+`add_footprint_native()` or clone a loaded native footprint with
+`add_footprint_clone()`. This path carries fields, pads, pad attributes,
+drawings, and footprint flags.
+
+The current native model preserves:
+
+* reference and value
+* FPID
+* layer, position, and orientation
+* field text, visibility, layer, position, size, thickness, angle, justification,
+  mirroring, and keep-upright
+* pad name, net, attribute, position, size, drill, shape, drill shape, layers,
+  local solder mask margin, and local clearance
+* footprint flags: exclude from position files, exclude from BOM, board-only,
+  and DNP
+
+## Zones
+
+`board.zones()` returns native zone items. `board.add_zone_item()` writes a
+native zone item back to the board.
+
+The current model includes:
+
+* net and net code
+* layer set
+* priority
+* zone name
+* fill mode
+* rule-area flag
+* outline polygons and holes
+* filled state and filled polygons by layer
+
+Zone-fill preservation is covered by unit tests and Kikakuka panel comparisons.
+
+## UUIDs
+
+KiCad native objects receive KiCad UUIDs when created, cloned, loaded, and saved.
+Generated UUID text is not a stable semantic API guarantee. The compatibility
+layer also uses deterministic in-memory placeholder IDs for Python object
+identity. Do not build workflows that depend on output UUID ordering.
