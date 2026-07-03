@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -10,6 +11,22 @@ import pybind11_kicad as kk
 
 
 IU_PER_MM = 1_000_000
+IU_PER_MIL = 25_400
+
+DEGREES_T = "degrees"
+RADIANS_T = "radians"
+TENTHS_OF_A_DEGREE_T = "tenths-of-a-degree"
+
+EDA_UNITS_MM = "mm"
+EDA_UNITS_MILLIMETRES = EDA_UNITS_MM
+EDA_UNITS_INCH = "inch"
+EDA_UNITS_INCHES = EDA_UNITS_INCH
+DXF_UNITS_MM = "mm"
+DXF_UNITS_MILLIMETERS = DXF_UNITS_MM
+DIM_UNITS_MODE_MM = "mm"
+DIM_UNITS_MODE_MILLIMETRES = DIM_UNITS_MODE_MM
+pcbIUScale = object()
+UTF8 = str
 
 
 def LoadBoard(path: str | Path) -> "BOARD":
@@ -22,6 +39,14 @@ def SaveBoard(path: str | Path, board: "BOARD") -> None:
 
 def GetBuildVersion() -> str:
     return "pybind11-kicad pcbnew compatibility layer, " + kk.backend_version()
+
+
+def GetMajorMinorVersion() -> str:
+    return f"{kk.TARGET_KICAD_MAJOR}.0"
+
+
+def Version() -> str:
+    return GetMajorMinorVersion()
 
 
 def CompatibilityLevel() -> str:
@@ -37,14 +62,118 @@ def FromMM(mm: float) -> int:
     return int(round(float(mm) * IU_PER_MM))
 
 
+def FromMils(mils: float) -> int:
+    return int(round(float(mils) * IU_PER_MIL))
+
+
 def ToMM(value: int | float) -> float:
     return float(value) / IU_PER_MM
+
+
+def ToMils(value: int | float) -> float:
+    return float(value) / IU_PER_MIL
 
 
 @dataclass(frozen=True)
 class VECTOR2I:
     x: int
     y: int
+
+    def __iter__(self):
+        yield self.x
+        yield self.y
+
+    def __len__(self) -> int:
+        return 2
+
+    def __getitem__(self, index: int) -> int:
+        if index == 0:
+            return self.x
+        if index == 1:
+            return self.y
+        raise IndexError(index)
+
+    def __add__(self, other: "VECTOR2I") -> "VECTOR2I":
+        return VECTOR2I(self.x + other.x, self.y + other.y)
+
+    def __sub__(self, other: "VECTOR2I") -> "VECTOR2I":
+        return VECTOR2I(self.x - other.x, self.y - other.y)
+
+    def __neg__(self) -> "VECTOR2I":
+        return VECTOR2I(-self.x, -self.y)
+
+
+@dataclass(frozen=True)
+class BOX2I:
+    origin: VECTOR2I
+    size: VECTOR2I
+
+    def GetX(self) -> int:
+        return self.origin.x
+
+    def GetY(self) -> int:
+        return self.origin.y
+
+    def GetWidth(self) -> int:
+        return self.size.x
+
+    def GetHeight(self) -> int:
+        return self.size.y
+
+    def GetPosition(self) -> VECTOR2I:
+        return self.origin
+
+    def GetSize(self) -> VECTOR2I:
+        return self.size
+
+    def GetOrigin(self) -> VECTOR2I:
+        return self.origin
+
+    def GetEnd(self) -> VECTOR2I:
+        return VECTOR2I(self.origin.x + self.size.x, self.origin.y + self.size.y)
+
+
+class EDA_ANGLE:
+    def __init__(self, value: int | float | str | "EDA_ANGLE" = 0, unit: str = DEGREES_T):
+        if isinstance(value, EDA_ANGLE):
+            self._degrees = value.AsDegrees()
+        elif unit == DEGREES_T:
+            self._degrees = float(value)
+        elif unit == RADIANS_T:
+            self._degrees = math.degrees(float(value))
+        elif unit == TENTHS_OF_A_DEGREE_T:
+            self._degrees = float(value) / 10.0
+        else:
+            raise ValueError(f"unsupported EDA_ANGLE unit: {unit!r}")
+
+    def AsDegrees(self) -> float:
+        return self._degrees
+
+    def AsRadians(self) -> float:
+        return math.radians(self._degrees)
+
+    def __int__(self) -> int:
+        return int(round(self._degrees * 10))
+
+    def __float__(self) -> float:
+        return self._degrees
+
+    def __mul__(self, other: int | float) -> "EDA_ANGLE":
+        return EDA_ANGLE(self._degrees * float(other), DEGREES_T)
+
+    def __rmul__(self, other: int | float) -> "EDA_ANGLE":
+        return self.__mul__(other)
+
+    def __truediv__(self, other: int | float) -> "EDA_ANGLE":
+        return EDA_ANGLE(self._degrees / float(other), DEGREES_T)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, EDA_ANGLE):
+            return NotImplemented
+        return math.isclose(self._degrees, other._degrees)
+
+    def __repr__(self) -> str:
+        return f"EDA_ANGLE({self._degrees!r}, DEGREES_T)"
 
 
 wxPoint = VECTOR2I
@@ -352,22 +481,42 @@ def _vector_from_mm_pair(position: Iterable[float]) -> VECTOR2I:
 __all__ = [
     "ActionPlugin",
     "BOARD",
+    "BOX2I",
     "CompatibilityLevel",
+    "DEGREES_T",
+    "DIM_UNITS_MODE_MILLIMETRES",
+    "DIM_UNITS_MODE_MM",
     "DRC",
+    "DXF_UNITS_MILLIMETERS",
+    "DXF_UNITS_MM",
+    "EDA_ANGLE",
+    "EDA_UNITS_INCH",
+    "EDA_UNITS_INCHES",
+    "EDA_UNITS_MILLIMETRES",
+    "EDA_UNITS_MM",
     "FromMM",
+    "FromMils",
     "GetBoard",
     "GetBuildVersion",
+    "GetMajorMinorVersion",
     "GetPcbFrame",
     "IU_PER_MM",
+    "IU_PER_MIL",
     "LoadBoard",
     "PCB_TRACK",
     "PCB_VIA",
     "PLOT_CONTROLLER",
+    "RADIANS_T",
     "Refresh",
     "RequireCompatibility",
     "SaveBoard",
+    "TENTHS_OF_A_DEGREE_T",
     "ToMM",
+    "ToMils",
+    "UTF8",
     "VECTOR2I",
+    "Version",
     "ZONE_FILLER",
+    "pcbIUScale",
     "wxPoint",
 ]

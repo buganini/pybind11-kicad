@@ -1,0 +1,6 @@
+pytest
+shapely>=2.0.3
+numpy
+click>=7.1
+commentjson>=0.9
+wxPython==4.2.5

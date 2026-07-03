@@ -38,6 +38,7 @@ native/cmake-build-*/
 *~
 
 # Local scratch files
+.cache/
 .env
 .env.*
 tmp/

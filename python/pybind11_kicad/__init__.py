@@ -32,7 +32,7 @@ class RuntimeConfig:
 
 _runtime_config = RuntimeConfig()
 TARGET_KICAD_MAJOR = 10
-TARGET_KICAD_VERSION = "10.0.x"
+TARGET_KICAD_VERSION = "10.0.4"
 
 
 def initialize(
@@ -67,7 +67,7 @@ def runtime_config() -> RuntimeConfig:
 
 def backend_version() -> str:
     if _native is None:
-        return "kicad-10-native-extension-unavailable"
+        return "kicad-10.0.4-native-extension-unavailable"
     return _native.backend_version()
 
 
@@ -121,6 +121,22 @@ class Board:
         spec.end = _native_point(end)
         spec.width_mm = width
         self._native_board.add_track(spec)
+
+    def add_via(
+        self,
+        *,
+        net: str,
+        position: tuple[float, float],
+        drill: float,
+        diameter: float,
+    ) -> None:
+        native = _require_native()
+        spec = native.ViaSpec()
+        spec.net = net
+        spec.position = _native_point(position)
+        spec.drill_mm = drill
+        spec.diameter_mm = diameter
+        self._native_board.add_via(spec)
 
 
 def _native_point(position: tuple[float, float]) -> Any:
