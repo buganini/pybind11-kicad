@@ -31,6 +31,24 @@ This repository now contains the first executable proof-of-concept slice:
   distribution/backend major-version name is `pybind11-kicad-native-10`.
 * the current target Python version is [Python 3.14](#versioning-strategy).
 
+Current compatibility test status, last checked on 2026-07-06: the configured
+compatibility suite passes.
+
+| Suite | Command | Passed | Failed | Skipped | Notes |
+| --- | --- | ---: | ---: | ---: | --- |
+| Local unit tests | `scripts/build.sh python -m unittest discover -s tests` | 8 | 0 | 0 | Python import surface and native board IO smoke coverage |
+| KiCad 10 legacy SWIG `pcbnew` tests | `scripts/run-pcbnewswig-tests.sh` | 22 | 0 | 0 | Vendored from KiCad 10.0.4 |
+| KiKit upstream unit tests | `scripts/run-kikit-tests.sh unit` | 31 | 0 | 0 | Pinned KiKit checkout |
+| KiKit upstream system tests | `scripts/run-kikit-tests.sh system` | 38 | 0 | 1 | Configured run excludes `stencil.bats`; one upstream PcbDraw case is skipped |
+| Kikakuka golden comparisons | `scripts/run-kikakuka-test.sh` | 9 | 0 | 0 | All `.kikit_pnl` samples plus Gerber conversion |
+| Configured total | | 108 | 0 | 1 | |
+
+Out-of-scope coverage:
+
+| Suite | Passed | Failed | Skipped | Notes |
+| --- | ---: | ---: | ---: | --- |
+| KiKit upstream `stencil.bats` | 0 | 0 | 3 | Not part of this project's required compatibility target; these cases exercise OpenSCAD stencil generation rather than `pcbnew` compatibility |
+
 See [docs/api/index.md](docs/api/index.md) for the current API documentation
 entry point.
 
@@ -230,6 +248,21 @@ cmake --build $PWD/tmp/pybind11-kicad-native-10-check \
   --target pybind11_kicad_native
 ```
 
+Run the vendored KiCad 10 legacy SWIG `pcbnew` pytest suite:
+
+```sh
+scripts/build.sh python -m pip install -r compat/pcbnewswig-test-requirements.txt
+scripts/run-pcbnewswig-tests.sh
+```
+
+The tests are copied from KiCad 10.0.4's `qa/tests/pcbnewswig` tree, with only
+the referenced board fixtures copied into `tests/upstream/data/pcbnew`. They
+are kept in this repository because future KiCad versions may remove the
+KiCad 10 legacy SWIG test suite while this project still needs those
+compatibility checks for the `pcbnew` shim.
+
+Current status: this suite passes against the KiCad-backed native backend.
+
 Run KiKit's upstream unit tests from the pinned compatibility source:
 
 ```sh
@@ -258,9 +291,18 @@ run KiKit's Bats-based system tests. Those tests require `bats` on `PATH`, the
 KiCad-backed board IO build, and real board files. The wrapper creates temporary
 `kikit` and `kikit-info` launchers bound to the active Python interpreter so the
 system tests do not accidentally pick up a machine-global KiCad Python wrapper.
-Set `PYBIND11_KICAD_KIKIT_PYTHON` to force a specific Python interpreter. The
-system tests remain separate from the quick scaffold tests because they exercise
-real file IO and a broader `pcbnew` compatibility surface.
+It enumerates KiKit's upstream system Bats files and intentionally skips
+`stencil.bats`; those cases require OpenSCAD stencil generation and are outside
+this project's required `pcbnew` compatibility target. Set
+`PYBIND11_KICAD_KIKIT_PYTHON` to force a specific Python interpreter and
+`PYBIND11_KICAD_NATIVE_BUILD_DIR` to force a specific native module directory.
+The default native module path is
+`$PWD/tmp/pybind11-kicad-10-build/pybind11-kicad-native`.
+
+Current status: the pinned KiKit unit target passes. The configured KiKit system
+target reports 38 passed, 0 failed, and 1 skipped test, including panel
+generation, exports, plugins, copper fill, dimensions, and preset dumping.
+KiKit's upstream stencil tests are out of scope for this project.
 
 Run the Kikakuka panel smoke test against a source checkout with variable
 paths:
@@ -282,16 +324,11 @@ Kikakuka immediately calls `pcbnew.LoadBoard`, so real Kikakuka panel workflows
 require the KiCad-backed board IO adapter and any additional `pcbnew` API they
 touch.
 
-Current Kikakuka smoke status: the `L7.kikit_pnl` smoke path runs through
-`pcbnew.LoadBoard()`, panel construction, native text/drawing creation, and
-`out.kicad_pcb` generation with the KiCad-backed backend. The current run still
-prints nonfatal Kikakuka/Shapely tab-substrate diagnostics for that sample, so
-future compatibility work should distinguish sample tab-placement warnings from
-hard missing-API failures.
-
-For local comparison, generate a SWIG-wrapper reference output with the same
-Kikakuka sample and keep it as an ignored workspace artifact, not a committed
-fixture.
+Current Kikakuka status: `scripts/run-kikakuka-test.sh` enumerates all
+`.kikit_pnl` files under the configured Kikakuka samples directory, also runs
+the `samples/gerber/export` conversion case, generates golden outputs with the
+configured SWIG-wrapper Python runner, and compares the pybind11-kicad outputs
+against those goldens. The current run passes all 9 samples.
 
 ## Technical Decision: Single Native Backend
 

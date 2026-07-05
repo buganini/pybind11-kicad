@@ -27,6 +27,11 @@ struct KkDesignSettings {
     KkIntPoint aux_origin;
 };
 
+struct KkTitleBlock {
+    std::string title;
+    std::vector<std::string> comments;
+};
+
 struct KkNetInfo {
     std::string name;
     int code = 0;
@@ -44,6 +49,7 @@ struct KkDrawing {
     KkIntPoint mid;
     std::vector<KkIntPoint> polygon_points;
     KkBox bounding_box;
+    std::string uuid;
 };
 
 struct KkPolygon {
@@ -68,6 +74,7 @@ struct KkZoneItem {
     std::vector<KkPolygon> polygons;
     std::vector<KkZoneFill> fills;
     KkBox bounding_box;
+    std::string uuid;
 };
 
 struct KkNpthSpec {
@@ -76,6 +83,8 @@ struct KkNpthSpec {
     KkIntPoint drill_size;
     KkIntPoint size;
     double orientation_degrees = 0.0;
+    std::string uuid;
+    std::string pad_uuid;
 };
 
 struct KkFootprintFieldSpec {
@@ -91,11 +100,13 @@ struct KkFootprintFieldSpec {
     int v_justify = 0;
     bool mirrored = false;
     bool keep_upright = true;
+    std::string uuid;
 };
 
 struct KkPad {
     std::string name;
     std::string net;
+    int net_code = 0;
     int attribute = 0;
     KkPoint position;
     KkPoint size;
@@ -107,6 +118,8 @@ struct KkPad {
     int local_solder_mask_margin = 0;
     bool has_local_clearance = false;
     int local_clearance = 0;
+    std::vector<KkPolygon> custom_polygons;
+    std::string uuid;
 };
 
 struct KkFootprintSpec {
@@ -125,6 +138,7 @@ struct KkFootprintSpec {
     std::vector<KkFootprintFieldSpec> fields;
     std::vector<KkPad> pads;
     std::vector<KkDrawing> drawings;
+    std::string uuid;
 };
 
 struct KkTextSpec {
@@ -137,6 +151,7 @@ struct KkTextSpec {
     int h_justify = 0;
     int v_justify = 0;
     bool mirrored = false;
+    std::string uuid;
 };
 
 struct KkTrackSpec {
@@ -145,6 +160,7 @@ struct KkTrackSpec {
     KkPoint start;
     KkPoint end;
     double width_mm = 0.0;
+    std::string uuid;
 };
 
 struct KkTrackItem {
@@ -153,10 +169,12 @@ struct KkTrackItem {
     int layer = -1;
     bool is_arc = false;
     KkIntPoint start;
+    KkIntPoint center;
     KkIntPoint mid;
     KkIntPoint end;
     int width = 0;
     KkBox bounding_box;
+    std::string uuid;
 };
 
 struct KkViaSpec {
@@ -164,6 +182,7 @@ struct KkViaSpec {
     KkPoint position;
     double drill_mm = 0.0;
     double diameter_mm = 0.0;
+    std::string uuid;
 };
 
 struct KkViaItem {
@@ -175,6 +194,7 @@ struct KkViaItem {
     int diameter = 0;
     std::vector<int> layers;
     KkBox bounding_box;
+    std::string uuid;
 };
 
 }  // namespace pybind11_kicad

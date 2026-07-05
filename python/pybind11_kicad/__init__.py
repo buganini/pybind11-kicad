@@ -96,6 +96,11 @@ def load_footprint(
     return native.load_footprint(str(library_path), footprint_name, bool(preserve_uuid))
 
 
+def seed_kiid_generator(seed: int) -> None:
+    native = _require_native()
+    native.seed_kiid_generator(int(seed))
+
+
 class Board:
     """Python facade for the native KiCad board object."""
 
@@ -124,6 +129,12 @@ class Board:
     def set_aux_origin(self, origin: tuple[int, int]) -> None:
         self._native_board.set_aux_origin(_native_int_point(origin))
 
+    def title_block(self) -> Any:
+        return self._native_board.title_block()
+
+    def set_title_block(self, title_block: Any) -> None:
+        self._native_board.set_title_block(title_block)
+
     def copper_layer_count(self) -> int:
         return self._native_board.copper_layer_count()
 
@@ -147,6 +158,9 @@ class Board:
 
     def drawings(self) -> list[Any]:
         return self._native_board.drawings()
+
+    def texts(self) -> list[Any]:
+        return self._native_board.texts()
 
     def zones(self) -> list[Any]:
         return self._native_board.zones()
@@ -173,6 +187,7 @@ class Board:
         radius: int = 0,
         filled: bool = False,
         polygon_points: list[tuple[int, int]] | None = None,
+        uuid: str = "",
     ) -> None:
         native = _require_native()
         drawing = native.Drawing()
@@ -186,6 +201,7 @@ class Board:
         drawing.radius = int(radius)
         drawing.filled = bool(filled)
         drawing.polygon_points = [_native_int_point(point) for point in (polygon_points or [])]
+        drawing.uuid = uuid
         self._native_board.add_drawing(drawing)
 
     def remove_drawing(
@@ -224,6 +240,8 @@ class Board:
         drill_size: tuple[int, int],
         size: tuple[int, int],
         orientation_degrees: float = 0.0,
+        uuid: str = "",
+        pad_uuid: str = "",
     ) -> None:
         native = _require_native()
         spec = native.NpthSpec()
@@ -232,6 +250,8 @@ class Board:
         spec.drill_size = _native_int_point(drill_size)
         spec.size = _native_int_point(size)
         spec.orientation_degrees = float(orientation_degrees)
+        spec.uuid = uuid
+        spec.pad_uuid = pad_uuid
         self._native_board.add_npth_hole(spec)
 
     def add_footprint(
@@ -281,6 +301,7 @@ class Board:
         h_justify: int,
         v_justify: int,
         mirrored: bool,
+        uuid: str = "",
     ) -> None:
         spec = _native_text_spec(
             text=text,
@@ -292,6 +313,7 @@ class Board:
             h_justify=h_justify,
             v_justify=v_justify,
             mirrored=mirrored,
+            uuid=uuid,
         )
         self._native_board.add_text(spec)
 
@@ -307,6 +329,7 @@ class Board:
         h_justify: int,
         v_justify: int,
         mirrored: bool,
+        uuid: str = "",
     ) -> bool:
         spec = _native_text_spec(
             text=text,
@@ -318,6 +341,7 @@ class Board:
             h_justify=h_justify,
             v_justify=v_justify,
             mirrored=mirrored,
+            uuid=uuid,
         )
         return bool(self._native_board.remove_text(spec))
 
@@ -329,6 +353,7 @@ class Board:
         start: tuple[float, float],
         end: tuple[float, float],
         width: float,
+        uuid: str = "",
     ) -> None:
         native = _require_native()
         spec = native.TrackSpec()
@@ -337,6 +362,7 @@ class Board:
         spec.start = _native_point(start)
         spec.end = _native_point(end)
         spec.width_mm = width
+        spec.uuid = uuid
         self._native_board.add_track(spec)
 
     def add_via(
@@ -347,6 +373,7 @@ class Board:
         drill: float,
         diameter: float,
         layers: tuple[str, ...] = ("F.Cu", "B.Cu"),
+        uuid: str = "",
     ) -> None:
         _ = layers
         native = _require_native()
@@ -355,6 +382,7 @@ class Board:
         spec.position = _native_point(position)
         spec.drill_mm = drill
         spec.diameter_mm = diameter
+        spec.uuid = uuid
         self._native_board.add_via(spec)
 
     def add_track_item(self, spec: Any) -> None:
@@ -365,6 +393,9 @@ class Board:
 
     def add_zone_item(self, spec: Any) -> None:
         self._native_board.add_zone_item(spec)
+
+    def remove_zone_item(self, spec: Any) -> bool:
+        return self._native_board.remove_zone_item(spec)
 
     def nets(self) -> Any:
         return self._native_board.nets()
@@ -406,6 +437,7 @@ def _native_text_spec(
     h_justify: int,
     v_justify: int,
     mirrored: bool,
+    uuid: str = "",
 ) -> Any:
     native = _require_native()
     spec = native.TextSpec()
@@ -418,6 +450,7 @@ def _native_text_spec(
     spec.h_justify = int(h_justify)
     spec.v_justify = int(v_justify)
     spec.mirrored = bool(mirrored)
+    spec.uuid = uuid
     return spec
 
 

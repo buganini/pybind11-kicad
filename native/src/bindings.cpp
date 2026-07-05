@@ -24,6 +24,7 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         py::arg("library_path"),
         py::arg("footprint_name"),
         py::arg("preserve_uuid") = false);
+    module.def("seed_kiid_generator", &seed_kiid_generator, py::arg("seed"));
 
     py::class_<KkPoint>(module, "Point")
         .def(py::init<>())
@@ -47,6 +48,11 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def_readwrite("board_thickness", &KkDesignSettings::board_thickness)
         .def_readwrite("aux_origin", &KkDesignSettings::aux_origin);
 
+    py::class_<KkTitleBlock>(module, "TitleBlock")
+        .def(py::init<>())
+        .def_readwrite("title", &KkTitleBlock::title)
+        .def_readwrite("comments", &KkTitleBlock::comments);
+
     py::class_<KkNetInfo>(module, "NetInfo")
         .def(py::init<>())
         .def_readwrite("name", &KkNetInfo::name)
@@ -64,7 +70,8 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def_readwrite("center", &KkDrawing::center)
         .def_readwrite("mid", &KkDrawing::mid)
         .def_readwrite("polygon_points", &KkDrawing::polygon_points)
-        .def_readwrite("bounding_box", &KkDrawing::bounding_box);
+        .def_readwrite("bounding_box", &KkDrawing::bounding_box)
+        .def_readwrite("uuid", &KkDrawing::uuid);
 
     py::class_<KkPolygon>(module, "Polygon")
         .def(py::init<>())
@@ -88,7 +95,8 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def_readwrite("is_filled", &KkZoneItem::is_filled)
         .def_readwrite("polygons", &KkZoneItem::polygons)
         .def_readwrite("fills", &KkZoneItem::fills)
-        .def_readwrite("bounding_box", &KkZoneItem::bounding_box);
+        .def_readwrite("bounding_box", &KkZoneItem::bounding_box)
+        .def_readwrite("uuid", &KkZoneItem::uuid);
 
     py::class_<KkNpthSpec>(module, "NpthSpec")
         .def(py::init<>())
@@ -96,7 +104,9 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def_readwrite("position", &KkNpthSpec::position)
         .def_readwrite("drill_size", &KkNpthSpec::drill_size)
         .def_readwrite("size", &KkNpthSpec::size)
-        .def_readwrite("orientation_degrees", &KkNpthSpec::orientation_degrees);
+        .def_readwrite("orientation_degrees", &KkNpthSpec::orientation_degrees)
+        .def_readwrite("uuid", &KkNpthSpec::uuid)
+        .def_readwrite("pad_uuid", &KkNpthSpec::pad_uuid);
 
     py::class_<KkFootprintFieldSpec>(module, "FootprintFieldSpec")
         .def(py::init<>())
@@ -111,12 +121,14 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def_readwrite("h_justify", &KkFootprintFieldSpec::h_justify)
         .def_readwrite("v_justify", &KkFootprintFieldSpec::v_justify)
         .def_readwrite("mirrored", &KkFootprintFieldSpec::mirrored)
-        .def_readwrite("keep_upright", &KkFootprintFieldSpec::keep_upright);
+        .def_readwrite("keep_upright", &KkFootprintFieldSpec::keep_upright)
+        .def_readwrite("uuid", &KkFootprintFieldSpec::uuid);
 
     py::class_<KkPad>(module, "Pad")
         .def(py::init<>())
         .def_readwrite("name", &KkPad::name)
         .def_readwrite("net", &KkPad::net)
+        .def_readwrite("net_code", &KkPad::net_code)
         .def_readwrite("attribute", &KkPad::attribute)
         .def_readwrite("position", &KkPad::position)
         .def_readwrite("size", &KkPad::size)
@@ -127,7 +139,9 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def_readwrite("has_local_solder_mask_margin", &KkPad::has_local_solder_mask_margin)
         .def_readwrite("local_solder_mask_margin", &KkPad::local_solder_mask_margin)
         .def_readwrite("has_local_clearance", &KkPad::has_local_clearance)
-        .def_readwrite("local_clearance", &KkPad::local_clearance);
+        .def_readwrite("local_clearance", &KkPad::local_clearance)
+        .def_readwrite("custom_polygons", &KkPad::custom_polygons)
+        .def_readwrite("uuid", &KkPad::uuid);
 
     py::class_<KkFootprintSpec>(module, "FootprintSpec")
         .def(py::init<>())
@@ -145,7 +159,8 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def_readwrite("value_visible", &KkFootprintSpec::value_visible)
         .def_readwrite("fields", &KkFootprintSpec::fields)
         .def_readwrite("pads", &KkFootprintSpec::pads)
-        .def_readwrite("drawings", &KkFootprintSpec::drawings);
+        .def_readwrite("drawings", &KkFootprintSpec::drawings)
+        .def_readwrite("uuid", &KkFootprintSpec::uuid);
 
     py::class_<KkTextSpec>(module, "TextSpec")
         .def(py::init<>())
@@ -157,7 +172,8 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def_readwrite("angle_degrees", &KkTextSpec::angle_degrees)
         .def_readwrite("h_justify", &KkTextSpec::h_justify)
         .def_readwrite("v_justify", &KkTextSpec::v_justify)
-        .def_readwrite("mirrored", &KkTextSpec::mirrored);
+        .def_readwrite("mirrored", &KkTextSpec::mirrored)
+        .def_readwrite("uuid", &KkTextSpec::uuid);
 
     py::class_<KkTrackSpec>(module, "TrackSpec")
         .def(py::init<>())
@@ -165,7 +181,8 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def_readwrite("layer", &KkTrackSpec::layer)
         .def_readwrite("start", &KkTrackSpec::start)
         .def_readwrite("end", &KkTrackSpec::end)
-        .def_readwrite("width_mm", &KkTrackSpec::width_mm);
+        .def_readwrite("width_mm", &KkTrackSpec::width_mm)
+        .def_readwrite("uuid", &KkTrackSpec::uuid);
 
     py::class_<KkTrackItem>(module, "TrackItem")
         .def(py::init<>())
@@ -174,17 +191,20 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def_readwrite("layer", &KkTrackItem::layer)
         .def_readwrite("is_arc", &KkTrackItem::is_arc)
         .def_readwrite("start", &KkTrackItem::start)
+        .def_readwrite("center", &KkTrackItem::center)
         .def_readwrite("mid", &KkTrackItem::mid)
         .def_readwrite("end", &KkTrackItem::end)
         .def_readwrite("width", &KkTrackItem::width)
-        .def_readwrite("bounding_box", &KkTrackItem::bounding_box);
+        .def_readwrite("bounding_box", &KkTrackItem::bounding_box)
+        .def_readwrite("uuid", &KkTrackItem::uuid);
 
     py::class_<KkViaSpec>(module, "ViaSpec")
         .def(py::init<>())
         .def_readwrite("net", &KkViaSpec::net)
         .def_readwrite("position", &KkViaSpec::position)
         .def_readwrite("drill_mm", &KkViaSpec::drill_mm)
-        .def_readwrite("diameter_mm", &KkViaSpec::diameter_mm);
+        .def_readwrite("diameter_mm", &KkViaSpec::diameter_mm)
+        .def_readwrite("uuid", &KkViaSpec::uuid);
 
     py::class_<KkViaItem>(module, "ViaItem")
         .def(py::init<>())
@@ -195,7 +215,8 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def_readwrite("drill", &KkViaItem::drill)
         .def_readwrite("diameter", &KkViaItem::diameter)
         .def_readwrite("layers", &KkViaItem::layers)
-        .def_readwrite("bounding_box", &KkViaItem::bounding_box);
+        .def_readwrite("bounding_box", &KkViaItem::bounding_box)
+        .def_readwrite("uuid", &KkViaItem::uuid);
 
     py::class_<KkFootprint>(module, "Footprint")
         .def_property_readonly("reference", &KkFootprint::reference)
@@ -208,6 +229,7 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def_property_readonly("excluded_from_bom", &KkFootprint::excluded_from_bom)
         .def_property_readonly("board_only", &KkFootprint::board_only)
         .def_property_readonly("dnp", &KkFootprint::dnp)
+        .def_property_readonly("uuid", &KkFootprint::uuid)
         .def_property_readonly("has_native_footprint", &KkFootprint::has_native_footprint)
         .def("fields", &KkFootprint::fields)
         .def("pads", &KkFootprint::pads)
@@ -220,6 +242,8 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def("design_settings", &KkBoard::design_settings)
         .def("set_board_thickness", &KkBoard::set_board_thickness)
         .def("set_aux_origin", &KkBoard::set_aux_origin)
+        .def("title_block", &KkBoard::title_block)
+        .def("set_title_block", &KkBoard::set_title_block)
         .def("copper_layer_count", &KkBoard::copper_layer_count)
         .def("set_copper_layer_count", &KkBoard::set_copper_layer_count)
         .def("enabled_layers", &KkBoard::enabled_layers)
@@ -229,6 +253,7 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def("set_layer_name", &KkBoard::set_layer_name)
         .def("nets", &KkBoard::nets)
         .def("drawings", &KkBoard::drawings)
+        .def("texts", &KkBoard::texts)
         .def("zones", &KkBoard::zones)
         .def("tracks", &KkBoard::tracks)
         .def("vias", &KkBoard::vias)
@@ -244,5 +269,6 @@ PYBIND11_MODULE(pybind11_kicad_native, module)
         .def("add_via", &KkBoard::add_via)
         .def("add_track_item", &KkBoard::add_track_item)
         .def("add_via_item", &KkBoard::add_via_item)
-        .def("add_zone_item", &KkBoard::add_zone_item);
+        .def("add_zone_item", &KkBoard::add_zone_item)
+        .def("remove_zone_item", &KkBoard::remove_zone_item);
 }

@@ -24,6 +24,7 @@ public:
         std::vector<KkFootprintFieldSpec> fields,
         std::vector<KkPad> pads,
         std::vector<KkDrawing> drawings,
+        std::string uuid,
         std::shared_ptr<void> native_footprint = nullptr);
 
     const std::string& reference() const;
@@ -39,6 +40,7 @@ public:
     const std::vector<KkFootprintFieldSpec>& fields() const;
     const std::vector<KkPad>& pads() const;
     const std::vector<KkDrawing>& drawings() const;
+    const std::string& uuid() const;
     bool has_native_footprint() const;
 
 private:
@@ -57,6 +59,7 @@ private:
     std::vector<KkFootprintFieldSpec> fields_;
     std::vector<KkPad> pads_;
     std::vector<KkDrawing> drawings_;
+    std::string uuid_;
     std::shared_ptr<void> native_footprint_;
 };
 
@@ -75,6 +78,8 @@ public:
     KkDesignSettings design_settings() const;
     void set_board_thickness(int thickness);
     void set_aux_origin(const KkIntPoint& origin);
+    KkTitleBlock title_block() const;
+    void set_title_block(const KkTitleBlock& title_block);
     int copper_layer_count() const;
     void set_copper_layer_count(int count);
     std::vector<int> enabled_layers() const;
@@ -84,6 +89,7 @@ public:
     bool set_layer_name(int layer_id, const std::string& name);
     std::vector<KkNetInfo> nets() const;
     std::vector<KkDrawing> drawings() const;
+    std::vector<KkTextSpec> texts() const;
     std::vector<KkZoneItem> zones() const;
     std::vector<KkTrackItem> tracks() const;
     std::vector<KkViaItem> vias() const;
@@ -100,6 +106,7 @@ public:
     void add_track_item(const KkTrackItem& spec);
     void add_via_item(const KkViaItem& spec);
     void add_zone_item(const KkZoneItem& spec);
+    bool remove_zone_item(const KkZoneItem& spec);
 
 private:
     struct Impl;
@@ -113,5 +120,7 @@ KkFootprint load_footprint(
     const std::string& library_path,
     const std::string& footprint_name,
     bool preserve_uuid = false);
+
+void seed_kiid_generator(unsigned int seed);
 
 }  // namespace pybind11_kicad

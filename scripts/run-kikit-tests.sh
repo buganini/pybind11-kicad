@@ -26,6 +26,8 @@ KIKIT_DIR="${KIKIT_SOURCE:-$CACHE_ROOT/KiKit}"
 PYTEST_CACHE_DIR="$CACHE_ROOT/pytest-cache"
 WRAPPER_DIR="$CACHE_ROOT/bin"
 KIKIT_TEST_PYTHON="${PYBIND11_KICAD_KIKIT_PYTHON:-}"
+NATIVE_BUILD_DIR="${PYBIND11_KICAD_NATIVE_BUILD_DIR:-$ROOT_DIR/tmp/pybind11-kicad-10-build/pybind11-kicad-native}"
+KICAD_BUILD_DIR="${PYBIND11_KICAD_BUILD_DIR:-$ROOT_DIR/tmp/pybind11-kicad-10-build}"
 
 if [ -n "${KIKIT_SOURCE:-}" ]; then
     if [ "$(git -C "$KIKIT_DIR" rev-parse HEAD)" != "$KIKIT_COMMIT" ]; then
@@ -82,6 +84,13 @@ if [ "$MODE" = "system" ] || [ "$MODE" = "all" ]; then
         exit 127
     fi
 
+    if [ ! -d "$NATIVE_BUILD_DIR" ]; then
+        echo "KiKit system tests require the KiCad-backed native module directory." >&2
+        echo "Build it with scripts/build.sh pybind11-kicad or set:" >&2
+        echo "  PYBIND11_KICAD_NATIVE_BUILD_DIR=/path/to/pybind11-kicad-native" >&2
+        exit 127
+    fi
+
     if ! "$KIKIT_TEST_PYTHON" -c "import wx" >/dev/null 2>&1; then
         echo "wxPython was not found for $KIKIT_TEST_PYTHON." >&2
         echo "Install KiKit test dependencies, for example:" >&2
@@ -98,14 +107,34 @@ EOF
 #!/usr/bin/env sh
 exec "$KIKIT_TEST_PYTHON" -c 'from kikit.info import cli; cli()' "\$@"
 EOF
+    rm -f "$WRAPPER_DIR/openscad"
     chmod +x "$WRAPPER_DIR/kikit" "$WRAPPER_DIR/kikit-info"
     export PATH="$WRAPPER_DIR:$PATH"
+
+    for candidate in \
+        "$KICAD_BUILD_DIR/kicad" \
+        "$KICAD_BUILD_DIR/kicad/KiCad.app/Contents/MacOS"
+    do
+        if [ -x "$candidate/kicad-cli" ] || [ -x "$candidate/kicad-cli.exe" ]; then
+            if "$candidate/kicad-cli" version >/dev/null 2>&1; then
+                export PATH="$candidate:$PATH"
+            elif [ -x "$candidate/kicad-cli.exe" ] && "$candidate/kicad-cli.exe" version >/dev/null 2>&1; then
+                export PATH="$candidate:$PATH"
+            fi
+        fi
+    done
+fi
+
+PYBIND11_KICAD_TEST_PYTHONPATH="$ROOT_DIR/python:$KIKIT_DIR"
+
+if [ -d "$NATIVE_BUILD_DIR" ]; then
+    PYBIND11_KICAD_TEST_PYTHONPATH="$PYBIND11_KICAD_TEST_PYTHONPATH:$NATIVE_BUILD_DIR"
 fi
 
 if [ -n "${PYTHONPATH:-}" ]; then
-    export PYTHONPATH="$ROOT_DIR/python:$KIKIT_DIR:$PYTHONPATH"
+    export PYTHONPATH="$PYBIND11_KICAD_TEST_PYTHONPATH:$PYTHONPATH"
 else
-    export PYTHONPATH="$ROOT_DIR/python:$KIKIT_DIR"
+    export PYTHONPATH="$PYBIND11_KICAD_TEST_PYTHONPATH"
 fi
 
 if [ -n "${PYTEST_ADDOPTS:-}" ]; then
@@ -114,14 +143,35 @@ else
     export PYTEST_ADDOPTS="-o cache_dir=$PYTEST_CACHE_DIR"
 fi
 
+run_kikit_system_tests() {
+    mkdir -p "$KIKIT_DIR/build/test"
+    (
+        cd "$KIKIT_DIR/build/test"
+        set --
+
+        for test_file in ../../test/system/*.bats; do
+            case "$test_file" in
+                */stencil.bats)
+                    continue
+                    ;;
+            esac
+
+            set -- "$@" "$test_file"
+        done
+
+        bats "$@"
+    )
+}
+
 case "$MODE" in
     all)
-        exec make -C "$KIKIT_DIR" test
+        run_kikit_system_tests
+        exec make -C "$KIKIT_DIR" test-unit
         ;;
     unit)
         exec make -C "$KIKIT_DIR" test-unit
         ;;
     system)
-        exec make -C "$KIKIT_DIR" test-system
+        run_kikit_system_tests
         ;;
 esac

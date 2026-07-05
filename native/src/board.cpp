@@ -14,6 +14,7 @@
 #include <board_design_settings.h>
 #include <board_item.h>
 #include <footprint.h>
+#include <kiid.h>
 #include <layer_ids.h>
 #include <lset.h>
 #include <netinfo.h>
@@ -25,6 +26,7 @@
 #include <pcb_shape.h>
 #include <pcb_text.h>
 #include <pcb_track.h>
+#include <title_block.h>
 #include <wx/string.h>
 #include <zone.h>
 #endif
@@ -92,6 +94,17 @@ KkIntPoint int_point_from_iu(const VECTOR2I& point)
 bool int_points_equal(const VECTOR2I& lhs, const KkIntPoint& rhs)
 {
     return lhs.x == rhs.x && lhs.y == rhs.y;
+}
+
+bool int_points_equal(const KkIntPoint& lhs, const KkIntPoint& rhs)
+{
+    return lhs.x == rhs.x && lhs.y == rhs.y;
+}
+
+void assign_uuid(EDA_ITEM& item, const std::string& uuid)
+{
+    if(!uuid.empty())
+        const_cast<KIID&>( item.m_Uuid ) = KIID(uuid);
 }
 
 std::vector<int> layers_from_lset(const LSET& layer_set)
@@ -182,6 +195,52 @@ std::vector<KkPolygon> polygons_from_poly_set(const SHAPE_POLY_SET& poly)
     }
 
     return polygons;
+}
+
+bool point_vectors_equal(const std::vector<KkIntPoint>& lhs, const std::vector<KkIntPoint>& rhs)
+{
+    std::size_t lhs_size = lhs.size();
+    std::size_t rhs_size = rhs.size();
+
+    if(lhs_size > 1 && int_points_equal(lhs.front(), lhs.back()))
+        --lhs_size;
+
+    if(rhs_size > 1 && int_points_equal(rhs.front(), rhs.back()))
+        --rhs_size;
+
+    if(lhs_size != rhs_size)
+        return false;
+
+    for(std::size_t i = 0; i < lhs_size; ++i)
+    {
+        if(!int_points_equal(lhs[i], rhs[i]))
+            return false;
+    }
+
+    return true;
+}
+
+bool polygons_equal(const std::vector<KkPolygon>& lhs, const std::vector<KkPolygon>& rhs)
+{
+    if(lhs.size() != rhs.size())
+        return false;
+
+    for(std::size_t i = 0; i < lhs.size(); ++i)
+    {
+        if(!point_vectors_equal(lhs[i].outline, rhs[i].outline))
+            return false;
+
+        if(lhs[i].holes.size() != rhs[i].holes.size())
+            return false;
+
+        for(std::size_t hole_idx = 0; hole_idx < lhs[i].holes.size(); ++hole_idx)
+        {
+            if(!point_vectors_equal(lhs[i].holes[hole_idx], rhs[i].holes[hole_idx]))
+                return false;
+        }
+    }
+
+    return true;
 }
 
 void add_polygons_to_poly_set(SHAPE_POLY_SET& poly, const std::vector<KkPolygon>& polygons)
@@ -299,7 +358,7 @@ KkDrawing drawing_from_shape(const PCB_SHAPE& shape)
 {
     int shape_type = static_cast<int>(shape.GetShape());
 
-    return KkDrawing{
+    KkDrawing drawing{
         static_cast<int>(shape.GetLayer()),
         shape_type,
         shape.GetWidth(),
@@ -314,32 +373,59 @@ KkDrawing drawing_from_shape(const PCB_SHAPE& shape)
         polygon_points_from_shape(shape),
         box_from_iu(shape.GetBoundingBox())
     };
+    drawing.uuid = shape.m_Uuid.AsStdString();
+    return drawing;
 }
 
 KkTrackItem track_from_native(const PCB_TRACK& track)
 {
     bool is_arc = track.Type() == PCB_ARC_T;
+    KkIntPoint center;
     KkIntPoint mid;
 
     if(is_arc)
-        mid = int_point_from_iu(static_cast<const PCB_ARC&>(track).GetMid());
+    {
+        const PCB_ARC& arc = static_cast<const PCB_ARC&>(track);
+        center = int_point_from_iu(arc.GetCenter());
+        mid = int_point_from_iu(arc.GetMid());
+    }
 
-    return KkTrackItem{
+    KkTrackItem item{
         to_utf8_string(track.GetNetname()),
         track.GetNetCode(),
         static_cast<int>(track.GetLayer()),
         is_arc,
         int_point_from_iu(track.GetStart()),
+        center,
         mid,
         int_point_from_iu(track.GetEnd()),
         track.GetWidth(),
         box_from_iu(track.GetBoundingBox())
     };
+    item.uuid = track.m_Uuid.AsStdString();
+    return item;
+}
+
+KkTextSpec text_spec_from_text(const PCB_TEXT& text)
+{
+    KkTextSpec spec{
+        to_utf8_string(text.GetText()),
+        static_cast<int>(text.GetLayer()),
+        int_point_from_iu(text.GetPosition()),
+        int_point_from_iu(text.GetTextSize()),
+        text.GetTextThickness(),
+        text.GetTextAngle().AsDegrees(),
+        static_cast<int>(text.GetHorizJustify()),
+        static_cast<int>(text.GetVertJustify()),
+        text.IsMirrored()
+    };
+    spec.uuid = text.m_Uuid.AsStdString();
+    return spec;
 }
 
 KkViaItem via_from_native(const PCB_VIA& via)
 {
-    return KkViaItem{
+    KkViaItem item{
         to_utf8_string(via.GetNetname()),
         via.GetNetCode(),
         static_cast<int>(via.GetViaType()),
@@ -349,6 +435,8 @@ KkViaItem via_from_native(const PCB_VIA& via)
         layers_from_lset(via.GetLayerSet()),
         box_from_iu(via.GetBoundingBox())
     };
+    item.uuid = via.m_Uuid.AsStdString();
+    return item;
 }
 
 KkZoneItem zone_from_native(const ZONE& zone)
@@ -364,6 +452,7 @@ KkZoneItem zone_from_native(const ZONE& zone)
     item.is_filled = zone.IsFilled();
     item.bounding_box = box_from_iu(zone.GetBoundingBox());
     item.polygons = polygons_from_poly_set(*zone.Outline());
+    item.uuid = zone.m_Uuid.AsStdString();
 
     for(int layer : item.layers)
     {
@@ -386,8 +475,19 @@ KkZoneItem zone_from_native(const ZONE& zone)
     return item;
 }
 
+bool zone_items_equal(const KkZoneItem& lhs, const KkZoneItem& rhs)
+{
+    return lhs.layers == rhs.layers
+        && lhs.priority == rhs.priority
+        && lhs.name == rhs.name
+        && lhs.fill_mode == rhs.fill_mode
+        && lhs.is_rule_area == rhs.is_rule_area
+        && polygons_equal(lhs.polygons, rhs.polygons);
+}
+
 void apply_drawing_to_shape(FOOTPRINT& footprint, PCB_SHAPE& shape, const KkDrawing& drawing)
 {
+    assign_uuid(shape, drawing.uuid);
     shape.SetShape(shape_type_from_int_or_throw(drawing.shape));
     shape.SetLayer(layer_id_from_int_or_throw(drawing.layer));
     shape.SetWidth(drawing.width);
@@ -452,7 +552,7 @@ bool text_matches_spec(const KkTextSpec& spec, const PCB_TEXT& text)
 
 KkFootprintFieldSpec field_spec_from_field(const PCB_FIELD& field)
 {
-    return KkFootprintFieldSpec{
+    KkFootprintFieldSpec spec{
         to_utf8_string(field.GetName()),
         to_utf8_string(field.GetText()),
         field.IsVisible(),
@@ -466,6 +566,17 @@ KkFootprintFieldSpec field_spec_from_field(const PCB_FIELD& field)
         field.IsMirrored(),
         field.IsKeepUpright()
     };
+    spec.uuid = field.m_Uuid.AsStdString();
+    return spec;
+}
+
+KkFootprintFieldSpec field_spec_from_text(const std::string& name, const wxString& value)
+{
+    KkFootprintFieldSpec field;
+    field.name = name;
+    field.value = to_utf8_string(value);
+    field.visible = false;
+    return field;
 }
 
 void apply_field_spec(FOOTPRINT& footprint, const KkFootprintFieldSpec& field_spec)
@@ -476,6 +587,16 @@ void apply_field_spec(FOOTPRINT& footprint, const KkFootprintFieldSpec& field_sp
         field = &footprint.Reference();
     else if(field_spec.name == "Value")
         field = &footprint.Value();
+    else if(field_spec.name == "Sheet file")
+    {
+        footprint.SetSheetfile(to_wx_string(field_spec.value));
+        return;
+    }
+    else if(field_spec.name == "Sheet name")
+    {
+        footprint.SetSheetname(to_wx_string(field_spec.value));
+        return;
+    }
     else
         field = footprint.GetField(to_wx_string(field_spec.name));
 
@@ -486,6 +607,7 @@ void apply_field_spec(FOOTPRINT& footprint, const KkFootprintFieldSpec& field_sp
         footprint.Add(field);
     }
 
+    assign_uuid(*field, field_spec.uuid);
     field->SetText(to_wx_string(field_spec.value));
     field->SetVisible(field_spec.visible);
     field->SetTextPos(int_point_to_iu(field_spec.position));
@@ -505,6 +627,19 @@ void apply_field_spec(FOOTPRINT& footprint, const KkFootprintFieldSpec& field_sp
     field->SetVertJustify(static_cast<GR_TEXT_V_ALIGN_T>(field_spec.v_justify));
     field->SetMirrored(field_spec.mirrored);
     field->SetKeepUpright(field_spec.keep_upright);
+}
+
+std::vector<KkPolygon> custom_pad_polygons(const PAD& pad)
+{
+    if(pad.GetShape(F_Cu) != PAD_SHAPE::CUSTOM
+        && pad.GetShape(PADSTACK::ALL_LAYERS) != PAD_SHAPE::CUSTOM)
+    {
+        return {};
+    }
+
+    SHAPE_POLY_SET polygon_set;
+    pad.MergePrimitivesAsPolygon(F_Cu, &polygon_set);
+    return polygons_from_poly_set(polygon_set);
 }
 
 void apply_footprint_attributes(FOOTPRINT& footprint, const KkFootprintSpec& spec)
@@ -538,6 +673,7 @@ PAD_ATTRIB pad_attribute_from_int_or_throw(int attribute)
 
 void apply_pad_spec(BOARD& board, FOOTPRINT& footprint, PAD& pad, const KkPad& pad_spec)
 {
+    assign_uuid(pad, pad_spec.uuid);
     pad.SetNumber(to_wx_string(pad_spec.name));
     pad.SetNet(net_or_null(board, pad_spec.net));
     pad.SetAttribute(pad_attribute_from_int_or_throw(pad_spec.attribute));
@@ -605,6 +741,7 @@ void apply_pad_specs(BOARD& board, FOOTPRINT& footprint, const std::vector<KkPad
 
 void apply_footprint_spec(BOARD& board, FOOTPRINT& footprint, const KkFootprintSpec& spec)
 {
+    assign_uuid(footprint, spec.uuid);
     footprint.SetReference(to_wx_string(spec.reference.empty() ? "REF**" : spec.reference));
     footprint.SetValue(to_wx_string(spec.value));
     footprint.SetFPIDAsString(to_wx_string(spec.fpid));
@@ -670,6 +807,9 @@ KkFootprint footprint_from_native(const FOOTPRINT& footprint, std::shared_ptr<vo
     for(const PCB_FIELD* field : footprint.GetFields())
         fields.push_back(field_spec_from_field(*field));
 
+    fields.push_back(field_spec_from_text("Sheet file", footprint.GetSheetfile()));
+    fields.push_back(field_spec_from_text("Sheet name", footprint.GetSheetname()));
+
     for(const BOARD_ITEM* item : footprint.GraphicalItems())
     {
         const PCB_SHAPE* shape = dynamic_cast<const PCB_SHAPE*>(item);
@@ -681,9 +821,10 @@ KkFootprint footprint_from_native(const FOOTPRINT& footprint, std::shared_ptr<vo
     for(const PAD* pad : footprint.Pads())
     {
         KkPoint drill_size = point_from_iu(pad->GetDrillSize());
-        pads.push_back({
+        KkPad pad_spec{
             to_utf8_string(pad->GetNumber()),
             to_utf8_string(pad->GetNetname()),
+            pad->GetNetCode(),
             static_cast<int>(pad->GetAttribute()),
             point_from_iu(pad->GetPosition()),
             point_from_iu(pad->GetSize(PADSTACK::ALL_LAYERS)),
@@ -694,8 +835,11 @@ KkFootprint footprint_from_native(const FOOTPRINT& footprint, std::shared_ptr<vo
             pad->GetLocalSolderMaskMargin().has_value(),
             pad->GetLocalSolderMaskMargin().value_or(0),
             pad->GetLocalClearance().has_value(),
-            pad->GetLocalClearance().value_or(0)
-        });
+            pad->GetLocalClearance().value_or(0),
+            custom_pad_polygons(*pad)
+        };
+        pad_spec.uuid = pad->m_Uuid.AsStdString();
+        pads.push_back(std::move(pad_spec));
     }
 
     if(!native_footprint)
@@ -715,8 +859,8 @@ KkFootprint footprint_from_native(const FOOTPRINT& footprint, std::shared_ptr<vo
         std::move(fields),
         std::move(pads),
         std::move(drawings),
-        std::move(native_footprint)
-    );
+        footprint.m_Uuid.AsStdString(),
+        std::move(native_footprint));
 }
 
 #else
@@ -763,6 +907,7 @@ KkFootprint::KkFootprint(
     std::vector<KkFootprintFieldSpec> fields,
     std::vector<KkPad> pads,
     std::vector<KkDrawing> drawings,
+    std::string uuid,
     std::shared_ptr<void> native_footprint)
     : reference_(std::move(reference)),
       value_(std::move(value)),
@@ -777,6 +922,7 @@ KkFootprint::KkFootprint(
       fields_(std::move(fields)),
       pads_(std::move(pads)),
       drawings_(std::move(drawings)),
+      uuid_(std::move(uuid)),
       native_footprint_(std::move(native_footprint))
 {
 }
@@ -844,6 +990,11 @@ const std::vector<KkPad>& KkFootprint::pads() const
 const std::vector<KkDrawing>& KkFootprint::drawings() const
 {
     return drawings_;
+}
+
+const std::string& KkFootprint::uuid() const
+{
+    return uuid_;
 }
 
 bool KkFootprint::has_native_footprint() const
@@ -946,6 +1097,47 @@ void KkBoard::set_aux_origin(const KkIntPoint& origin)
     impl_->board->GetDesignSettings().SetAuxOrigin(int_point_to_iu(origin));
 #else
     (void) origin;
+    native_backend_unavailable();
+#endif
+}
+
+KkTitleBlock KkBoard::title_block() const
+{
+#if defined(PYBIND11_KICAD_ENABLE_KICAD_BOARD_IO)
+    if(!impl_ || !impl_->board)
+        throw std::runtime_error("Cannot inspect an uninitialized KiCad board");
+
+    const TITLE_BLOCK& native_title_block = impl_->board->GetTitleBlock();
+    KkTitleBlock result;
+    result.title = to_utf8_string(native_title_block.GetTitle());
+
+    for(int i = 0; i < 9; ++i)
+        result.comments.push_back(to_utf8_string(native_title_block.GetComment(i)));
+
+    while(!result.comments.empty() && result.comments.back().empty())
+        result.comments.pop_back();
+
+    return result;
+#else
+    native_backend_unavailable();
+#endif
+}
+
+void KkBoard::set_title_block(const KkTitleBlock& title_block)
+{
+#if defined(PYBIND11_KICAD_ENABLE_KICAD_BOARD_IO)
+    if(!impl_ || !impl_->board)
+        throw std::runtime_error("Cannot edit an uninitialized KiCad board");
+
+    TITLE_BLOCK native_title_block = impl_->board->GetTitleBlock();
+    native_title_block.SetTitle(to_wx_string(title_block.title));
+
+    for(std::size_t i = 0; i < title_block.comments.size(); ++i)
+        native_title_block.SetComment(static_cast<int>(i), to_wx_string(title_block.comments[i]));
+
+    impl_->board->SetTitleBlock(native_title_block);
+#else
+    (void) title_block;
     native_backend_unavailable();
 #endif
 }
@@ -1100,6 +1292,28 @@ std::vector<KkDrawing> KkBoard::drawings() const
 #endif
 }
 
+std::vector<KkTextSpec> KkBoard::texts() const
+{
+#if defined(PYBIND11_KICAD_ENABLE_KICAD_BOARD_IO)
+    if(!impl_ || !impl_->board)
+        throw std::runtime_error("Cannot inspect an uninitialized KiCad board");
+
+    std::vector<KkTextSpec> result;
+
+    for(const BOARD_ITEM* item : impl_->board->Drawings())
+    {
+        const PCB_TEXT* text = dynamic_cast<const PCB_TEXT*>(item);
+
+        if(text)
+            result.push_back(text_spec_from_text(*text));
+    }
+
+    return result;
+#else
+    native_backend_unavailable();
+#endif
+}
+
 std::vector<KkZoneItem> KkBoard::zones() const
 {
 #if defined(PYBIND11_KICAD_ENABLE_KICAD_BOARD_IO)
@@ -1185,6 +1399,7 @@ void KkBoard::add_drawing(const KkDrawing& drawing)
         throw std::runtime_error("Cannot edit an uninitialized KiCad board");
 
     auto* shape = new PCB_SHAPE(impl_->board.get(), shape_type_from_int_or_throw(drawing.shape));
+    assign_uuid(*shape, drawing.uuid);
     shape->SetLayer(layer_id_from_int_or_throw(drawing.layer));
     shape->SetWidth(drawing.width);
     shape->SetFilled(drawing.filled);
@@ -1265,6 +1480,7 @@ void KkBoard::add_npth_hole(const KkNpthSpec& spec)
     bool is_slot = drill_size.x != drill_size.y || pad_size.x != pad_size.y;
 
     auto* footprint = new FOOTPRINT(impl_->board.get());
+    assign_uuid(*footprint, spec.uuid);
     footprint->SetReference(to_wx_string(spec.reference.empty() ? "NPTH" : spec.reference));
     footprint->SetValue(wxS("NPTH"));
     footprint->Reference().SetVisible(false);
@@ -1272,6 +1488,7 @@ void KkBoard::add_npth_hole(const KkNpthSpec& spec)
     footprint->SetPosition(position);
 
     auto* pad = new PAD(footprint);
+    assign_uuid(*pad, spec.pad_uuid);
     pad->SetAttribute(PAD_ATTRIB::NPTH);
     pad->SetLayerSet(PAD::UnplatedHoleMask());
     pad->SetShape(PADSTACK::ALL_LAYERS, is_slot ? PAD_SHAPE::OVAL : PAD_SHAPE::CIRCLE);
@@ -1334,6 +1551,7 @@ void KkBoard::add_text(const KkTextSpec& spec)
         throw std::runtime_error("Cannot edit an uninitialized KiCad board");
 
     auto* text = new PCB_TEXT(impl_->board.get());
+    assign_uuid(*text, spec.uuid);
     text->SetText(to_wx_string(spec.text));
     text->SetLayer(layer_id_from_int_or_throw(spec.layer));
     text->SetPosition(int_point_to_iu(spec.position));
@@ -1387,6 +1605,7 @@ void KkBoard::add_track(const KkTrackSpec& spec)
         throw std::runtime_error("Cannot edit an uninitialized KiCad board");
 
     auto* track = new PCB_TRACK(impl_->board.get());
+    assign_uuid(*track, spec.uuid);
     track->SetStart(point_to_iu(spec.start));
     track->SetEnd(point_to_iu(spec.end));
     track->SetWidth(mm_to_iu(spec.width_mm));
@@ -1406,6 +1625,7 @@ void KkBoard::add_via(const KkViaSpec& spec)
         throw std::runtime_error("Cannot edit an uninitialized KiCad board");
 
     auto* via = new PCB_VIA(impl_->board.get());
+    assign_uuid(*via, spec.uuid);
     via->SetViaType(VIATYPE::THROUGH);
     via->SetPosition(point_to_iu(spec.position));
     via->SetWidth(mm_to_iu(spec.diameter_mm));
@@ -1430,6 +1650,7 @@ void KkBoard::add_track_item(const KkTrackItem& spec)
     if(spec.is_arc)
     {
         auto* arc = new PCB_ARC(impl_->board.get());
+        assign_uuid(*arc, spec.uuid);
         arc->SetStart(int_point_to_iu(spec.start));
         arc->SetMid(int_point_to_iu(spec.mid));
         arc->SetEnd(int_point_to_iu(spec.end));
@@ -1438,6 +1659,7 @@ void KkBoard::add_track_item(const KkTrackItem& spec)
     else
     {
         track = new PCB_TRACK(impl_->board.get());
+        assign_uuid(*track, spec.uuid);
         track->SetStart(int_point_to_iu(spec.start));
         track->SetEnd(int_point_to_iu(spec.end));
     }
@@ -1459,6 +1681,7 @@ void KkBoard::add_via_item(const KkViaItem& spec)
         throw std::runtime_error("Cannot edit an uninitialized KiCad board");
 
     auto* via = new PCB_VIA(impl_->board.get());
+    assign_uuid(*via, spec.uuid);
     via->SetViaType(static_cast<VIATYPE>(spec.via_type));
     via->SetPosition(int_point_to_iu(spec.position));
     via->SetWidth(spec.diameter);
@@ -1493,6 +1716,7 @@ void KkBoard::add_zone_item(const KkZoneItem& spec)
         throw std::runtime_error("Cannot edit an uninitialized KiCad board");
 
     auto* zone = new ZONE(impl_->board.get());
+    assign_uuid(*zone, spec.uuid);
     zone->SetAssignedPriority(spec.priority);
     zone->SetZoneName(to_wx_string(spec.name));
     zone->SetFillMode(static_cast<ZONE_FILL_MODE>(spec.fill_mode));
@@ -1536,6 +1760,34 @@ void KkBoard::add_zone_item(const KkZoneItem& spec)
 #endif
 }
 
+bool KkBoard::remove_zone_item(const KkZoneItem& spec)
+{
+#if defined(PYBIND11_KICAD_ENABLE_KICAD_BOARD_IO)
+    if(!impl_ || !impl_->board)
+        throw std::runtime_error("Cannot edit an uninitialized KiCad board");
+
+    ZONE* match = nullptr;
+
+    for(ZONE* zone : impl_->board->Zones())
+    {
+        if(zone && zone_items_equal(zone_from_native(*zone), spec))
+        {
+            match = zone;
+            break;
+        }
+    }
+
+    if(!match)
+        return false;
+
+    impl_->board->Delete(match);
+    return true;
+#else
+    (void) spec;
+    native_backend_unavailable();
+#endif
+}
+
 KkFootprint load_footprint(
     const std::string& library_path,
     const std::string& footprint_name,
@@ -1572,6 +1824,16 @@ KkFootprint load_footprint(
     (void) library_path;
     (void) footprint_name;
     (void) preserve_uuid;
+    native_backend_unavailable();
+#endif
+}
+
+void seed_kiid_generator(unsigned int seed)
+{
+#if defined(PYBIND11_KICAD_ENABLE_KICAD_BOARD_IO)
+    KIID::SeedGenerator(seed);
+#else
+    (void) seed;
     native_backend_unavailable();
 #endif
 }
