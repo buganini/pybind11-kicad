@@ -145,6 +145,7 @@ Prerequisites:
 * Git and network access, unless `tmp/kicad` already contains the pinned KiCad
   checkout
 * CMake 3.20 or newer
+* Ninja, used as the single cross-platform CMake generator for this project
 * a C++20 compiler compatible with both the self-built KiCad artifacts and the
   CPython 3.14 extension ABI
 * platform dependencies from the generated scripts in `deps/kicad-10.0.4/`
@@ -154,12 +155,43 @@ self-built KiCad tree and CPython 3.14 interpreter used for this backend.
 
 Platform guidance:
 
-* Windows: use MSVC, preferably Visual Studio 2022 for the KiCad 10 target, and
-  build against the same CPython 3.14 ABI family.
+* Windows: use MSVC, preferably Visual Studio 2022 for the KiCad 10 target,
+  and build against the same CPython 3.14 ABI family.
 * macOS: use the Apple Clang/Xcode toolchain family and match the Python
   architecture, such as arm64, x86_64, or universal2.
 * Linux: use the distro-compatible GCC/libstdc++ toolchain and the matching
   Python 3.14 development package.
+
+Manual Windows setup:
+
+* install Visual Studio 2022 Build Tools with the Desktop development with C++
+  workload
+* install Python 3.14 x64
+* install Git
+* install a POSIX shell with `sh` or `bash`, such as Git Bash, MSYS2, Cygwin,
+  or another compatible shell
+* install CMake and Ninja
+* install vcpkg and set `VCPKG_ROOT`
+* install the KiCad dependency set with
+  `deps/kicad-10.0.4/install-windows-vcpkg.ps1`
+
+Run the build from a Visual Studio developer environment so MSVC is active, and
+use the POSIX shell only to execute the script:
+
+```powershell
+$env:PYBIND11_KICAD_PYTHON = "C:\Users\you\AppData\Local\Programs\Python\Python314\python.exe"
+$env:VCPKG_ROOT = "C:\src\vcpkg"
+$env:CMAKE_GENERATOR = "Ninja"
+$env:CMAKE_BUILD_PARALLEL_LEVEL = "8"
+```
+
+```sh
+bash scripts/build.sh
+```
+
+You do not have to manually install KiCad for this backend. The build fetches
+or reuses the pinned KiCad source checkout in `tmp/kicad` and links against the
+matching self-built KiCad artifacts. KiCad's bundled Python is not used.
 
 The dependency helpers are generated from the pinned KiCad source:
 
