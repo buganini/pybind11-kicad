@@ -3,6 +3,7 @@ import unittest
 
 import pybind11_kicad as kk
 import pcbnew
+from pybind11_kicad.compat.swig_constants import SWIG_CONSTANTS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +53,22 @@ class PcbnewCompatTests(unittest.TestCase):
         self.assertEqual(pcbnew.GetMajorMinorVersion(), "10.0")
         self.assertEqual(pcbnew.CompatibilityLevel(), "partial-pcbnew-v10")
         self.assertIn("pybind11-kicad pcbnew compatibility layer", pcbnew.GetBuildVersion())
+
+    def test_pcbnew_exports_swig_constants(self):
+        self.assertEqual(len(SWIG_CONSTANTS), 949)
+        for name, value in SWIG_CONSTANTS.items():
+            with self.subTest(name=name):
+                self.assertTrue(hasattr(pcbnew, name))
+                self.assertEqual(getattr(pcbnew, name), value)
+
+        self.assertEqual(pcbnew.DEGREES_T, 1)
+        self.assertEqual(pcbnew.RADIANS_T, 2)
+        self.assertEqual(pcbnew.TENTHS_OF_A_DEGREE_T, 0)
+        self.assertEqual(pcbnew.PLOT_FORMAT_GERBER, 1)
+        self.assertEqual(pcbnew.PLOT_FORMAT_DXF, 3)
+        self.assertEqual(pcbnew.PLOT_FORMAT_PDF, 4)
+        self.assertEqual(pcbnew.ADD_MODE_APPEND, 1)
+        self.assertEqual(pcbnew.DIM_UNITS_MODE_MM, 2)
 
     def test_pcbnew_value_types_for_kikit_unit_tests(self):
         angle = pcbnew.EDA_ANGLE(180, pcbnew.DEGREES_T)

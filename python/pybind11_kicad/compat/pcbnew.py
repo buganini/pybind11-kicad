@@ -12,6 +12,8 @@ from typing import Any, Callable, Iterable
 
 import pybind11_kicad as kk
 
+from .swig_constants import SWIG_CONSTANTS as _SWIG_CONSTANTS
+
 
 IU_PER_MM = 1_000_000
 IU_PER_MIL = 25_400
@@ -88,6 +90,8 @@ PLOT_FORMAT_GERBER = 0
 PLOT_FORMAT_PDF = 1
 PLOT_FORMAT_DXF = 2
 DRILL_MARKS_NO_DRILL_SHAPE = 0
+
+globals().update(_SWIG_CONSTANTS)
 
 
 class UNITS_PROVIDER:
@@ -185,6 +189,8 @@ FP_EXCLUDE_FROM_POS_FILES = 4
 FP_EXCLUDE_FROM_BOM = 8
 FP_BOARD_ONLY = 16
 FP_DNP = 64
+
+globals().update(_SWIG_CONSTANTS)
 
 
 def LoadBoard(path: str | Path) -> "BOARD":
@@ -3516,3 +3522,5 @@ __all__ = [
     "wxPoint",
     "wxPointMM",
 ]
+
+__all__ = sorted(set(__all__) | set(_SWIG_CONSTANTS))
