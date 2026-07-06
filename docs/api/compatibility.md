@@ -15,7 +15,7 @@ Status labels:
 
 | Area | Status | Verification |
 | --- | --- | --- |
-| KiCad target 10.0.4 | implemented, tested | `scripts/build.sh`, `scripts/test-kicad.sh` |
+| KiCad target 10.0.4 | implemented, tested | `scripts/run.sh`, `scripts/test-kicad.sh` |
 | Python target 3.14 | implemented, tested | build script version check |
 | Self-built KiCad backend | implemented, tested | native module links against pinned build tree |
 | User-installed KiCad lookup | unsupported | design decision in README |

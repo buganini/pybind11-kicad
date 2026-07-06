@@ -37,7 +37,7 @@ This repository now contains the first executable proof-of-concept slice:
 * `native/` contains the C++ facade, pybind11 module scaffold, pinned KiCad
   source resolver, KiCad-backed board IO adapter, and CMake glue for injecting
   the adapter into a KiCad build graph.
-* `scripts/build.sh` is the reproducible entry point for building pinned
+* `scripts/run.sh` is the reproducible entry point for building pinned
   KiCad and the KiCad-linked native backend.
 * `tests/` verifies the Python import surface, compatibility metadata, unit
   helpers, clear native-backend failure for scaffold builds without board IO,
@@ -83,7 +83,6 @@ Current pinned targets:
 
 ```text
 KiCad version: 10.0.4
-KiCad major:   10
 Python:        3.14
 Backend name:  pybind11-kicad-native-10
 ```

@@ -869,7 +869,7 @@ KkFootprint footprint_from_native(const FOOTPRINT& footprint, std::shared_ptr<vo
 {
     throw BackendUnavailableError(
         "The pybind11_kicad_native extension was built without KiCad board IO. "
-        "Build with scripts/build.sh pybind11-kicad or configure with "
+        "Build with scripts/run.sh build-pybind11-kicad or configure with "
         "PYBIND11_KICAD_ENABLE_KICAD_BOARD_IO=ON and a configured target KiCad "
         "build tree.");
 }

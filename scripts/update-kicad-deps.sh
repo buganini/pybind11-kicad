@@ -17,7 +17,7 @@ fi
 
 if [ ! -d "$SOURCE_DIR" ]; then
     echo "KiCad source checkout not found: $SOURCE_DIR" >&2
-    echo "Run scripts/build.sh configure first, or set PYBIND11_KICAD_KICAD_SOURCE_DIR." >&2
+    echo "Run scripts/run.sh configure-kicad first, or set PYBIND11_KICAD_KICAD_SOURCE_DIR." >&2
     exit 2
 fi
 

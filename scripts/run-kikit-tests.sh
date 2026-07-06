@@ -86,7 +86,7 @@ if [ "$MODE" = "system" ] || [ "$MODE" = "all" ]; then
 
     if [ ! -d "$NATIVE_BUILD_DIR" ]; then
         echo "KiKit system tests require the KiCad-backed native module directory." >&2
-        echo "Build it with scripts/build.sh pybind11-kicad or set:" >&2
+        echo "Build it with scripts/run.sh build-pybind11-kicad or set:" >&2
         echo "  PYBIND11_KICAD_NATIVE_BUILD_DIR=/path/to/pybind11-kicad-native" >&2
         exit 127
     fi

@@ -10,6 +10,11 @@ readme = "README.md"
 requires-python = ">=3.14,<3.15"
 license = { text = "GPL-3.0-or-later" }
 
+[project.optional-dependencies]
+kikakuka-test = [
+    "wxPython==4.2.5",
+]
+
 [tool.setuptools]
 package-dir = { "" = "python" }
 py-modules = ["pcbnew"]

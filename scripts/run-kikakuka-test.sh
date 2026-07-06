@@ -2,17 +2,28 @@
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+KIKIT_LOCK_FILE="$ROOT_DIR/compat/kikit.lock"
+
+if [ -f "$KIKIT_LOCK_FILE" ]; then
+    . "$KIKIT_LOCK_FILE"
+fi
 
 CACHE_ROOT="${PYBIND11_KICAD_KIKAKUKA_CACHE_DIR:-$ROOT_DIR/.cache/kikakuka}"
 HEADLESS_PUI_PATH="$ROOT_DIR/tests/support/kikakuka_headless"
+KIKIT_CACHE_ROOT="${PYBIND11_KICAD_COMPAT_DIR:-$ROOT_DIR/.cache/kikit}"
+KIKIT_DIR="${KIKIT_SOURCE:-$KIKIT_CACHE_ROOT/KiKit}"
 KIKAKUKA_DIR="${PYBIND11_KICAD_KIKAKUKA_SOURCE:-${KIKAKUKA_SOURCE:-$ROOT_DIR/../kikakuka}}"
 KIKAKUKA_SCRIPT="${PYBIND11_KICAD_KIKAKUKA_SCRIPT:-$KIKAKUKA_DIR/kikakuka.py}"
 KIKAKUKA_SAMPLES_DIR="${PYBIND11_KICAD_KIKAKUKA_SAMPLES_DIR:-$KIKAKUKA_DIR/samples}"
 KIKAKUKA_GERBER_EXPORT="${PYBIND11_KICAD_KIKAKUKA_GERBER_EXPORT:-$KIKAKUKA_SAMPLES_DIR/gerber/export}"
-KIKAKUKA_VENV="${PYBIND11_KICAD_KIKAKUKA_VENV:-}"
-KIKAKUKA_PYTHON="${PYBIND11_KICAD_KIKAKUKA_PYTHON:-}"
+KIKAKUKA_LOCAL_RUNNER="${PYBIND11_KICAD_KIKAKUKA_LOCAL_RUNNER:-$ROOT_DIR/scripts/run.sh}"
+KIKAKUKA_LOCAL_PYTHON_ENV_DIR="${PYBIND11_KICAD_KIKAKUKA_VENV:-${PYBIND11_KICAD_PYTHON_ENV_DIR:-}}"
+KIKAKUKA_LOCAL_PYTHON="${PYBIND11_KICAD_KIKAKUKA_PYTHON:-}"
 KIKAKUKA_GOLDEN_PYTHON="${PYBIND11_KICAD_KIKAKUKA_GOLDEN_PYTHON:-$ROOT_DIR/..//kikakuka/env/bin/python}"
 KIKAKUKA_GOLDEN_PYTHONPATH="${PYBIND11_KICAD_KIKAKUKA_GOLDEN_PYTHONPATH:-}"
+KIKAKUKA_REQUIREMENTS="${PYBIND11_KICAD_KIKAKUKA_REQUIREMENTS:-$KIKAKUKA_DIR/requirements.txt}"
+KIKAKUKA_EXTRA_REQUIREMENT="${PYBIND11_KICAD_KIKAKUKA_EXTRA_REQUIREMENT-wxPython==4.2.5}"
+KIKAKUKA_INSTALL_DEPS="${PYBIND11_KICAD_KIKAKUKA_INSTALL_DEPS:-1}"
 COMPARE_SCRIPT="${PYBIND11_KICAD_KIKAKUKA_COMPARE_SCRIPT:-$ROOT_DIR/scripts/compare-kikakuka-boards.py}"
 DEFAULT_NATIVE_BUILD_DIR="$ROOT_DIR/tmp/pybind11-kicad-10-build/pybind11-kicad-native"
 NATIVE_BUILD_DIR="${PYBIND11_KICAD_NATIVE_BUILD_DIR:-}"
@@ -20,30 +31,17 @@ if [ -z "$NATIVE_BUILD_DIR" ] && [ -d "$DEFAULT_NATIVE_BUILD_DIR" ]; then
     NATIVE_BUILD_DIR="$DEFAULT_NATIVE_BUILD_DIR"
 fi
 
-if [ -n "$KIKAKUKA_VENV" ]; then
-    if [ ! -x "$KIKAKUKA_VENV/bin/python" ]; then
-        echo "PYBIND11_KICAD_KIKAKUKA_VENV does not contain bin/python: $KIKAKUKA_VENV" >&2
-        exit 2
-    fi
-    PATH="$KIKAKUKA_VENV/bin:$PATH"
-    export PATH
-    if [ -z "$KIKAKUKA_PYTHON" ]; then
-        KIKAKUKA_PYTHON="$KIKAKUKA_VENV/bin/python"
-    fi
+if [ ! -x "$KIKAKUKA_LOCAL_RUNNER" ]; then
+    echo "Local pybind11-kicad runner not found or not executable: $KIKAKUKA_LOCAL_RUNNER" >&2
+    echo "Set PYBIND11_KICAD_KIKAKUKA_LOCAL_RUNNER." >&2
+    exit 2
 fi
 
-if [ -z "$KIKAKUKA_PYTHON" ]; then
-    if [ -x "$ROOT_DIR/env/bin/python" ]; then
-        KIKAKUKA_PYTHON="$ROOT_DIR/env/bin/python"
-    elif command -v python3.14 >/dev/null 2>&1; then
-        KIKAKUKA_PYTHON="$(command -v python3.14)"
-    elif command -v python3 >/dev/null 2>&1; then
-        KIKAKUKA_PYTHON="$(command -v python3)"
-    elif command -v python >/dev/null 2>&1; then
-        KIKAKUKA_PYTHON="$(command -v python)"
-    else
-        echo "No Python interpreter found for Kikakuka test." >&2
-        exit 127
+if [ -n "$KIKAKUKA_LOCAL_PYTHON_ENV_DIR" ]; then
+    if [ ! -x "$KIKAKUKA_LOCAL_PYTHON_ENV_DIR/bin/python" ] && [ ! -x "$KIKAKUKA_LOCAL_PYTHON_ENV_DIR/Scripts/python.exe" ]; then
+        echo "Configured local Python env has no Python executable: $KIKAKUKA_LOCAL_PYTHON_ENV_DIR" >&2
+        echo "Set PYBIND11_KICAD_KIKAKUKA_VENV or PYBIND11_KICAD_PYTHON_ENV_DIR." >&2
+        exit 2
     fi
 fi
 
@@ -71,6 +69,12 @@ if [ ! -x "$KIKAKUKA_GOLDEN_PYTHON" ]; then
     exit 2
 fi
 
+if [ "$KIKAKUKA_INSTALL_DEPS" != "0" ] && [ ! -f "$KIKAKUKA_REQUIREMENTS" ]; then
+    echo "Kikakuka requirements file not found: $KIKAKUKA_REQUIREMENTS" >&2
+    echo "Set PYBIND11_KICAD_KIKAKUKA_REQUIREMENTS, or set PYBIND11_KICAD_KIKAKUKA_INSTALL_DEPS=0." >&2
+    exit 2
+fi
+
 if [ -n "$NATIVE_BUILD_DIR" ] && [ ! -d "$NATIVE_BUILD_DIR" ]; then
     echo "Native build directory not found: $NATIVE_BUILD_DIR" >&2
     echo "Set PYBIND11_KICAD_NATIVE_BUILD_DIR to a build directory containing pybind11_kicad_native." >&2
@@ -83,12 +87,17 @@ if [ ! -f "$COMPARE_SCRIPT" ]; then
     exit 2
 fi
 
+if [ -d "$KIKIT_DIR/kikit" ]; then
+    KIKIT_PYTHONPATH="$KIKIT_DIR"
+else
+    KIKIT_PYTHONPATH=""
+fi
+
 mkdir -p "$CACHE_ROOT/golden" "$CACHE_ROOT/local" "$CACHE_ROOT/logs" "$CACHE_ROOT/diffs"
 
-if [ -n "$NATIVE_BUILD_DIR" ]; then
-    LOCAL_PYTHONPATH="$HEADLESS_PUI_PATH:$ROOT_DIR/python:$NATIVE_BUILD_DIR"
-else
-    LOCAL_PYTHONPATH="$HEADLESS_PUI_PATH:$ROOT_DIR/python"
+LOCAL_PYTHONPATH="$HEADLESS_PUI_PATH"
+if [ -n "$KIKIT_PYTHONPATH" ]; then
+    LOCAL_PYTHONPATH="$LOCAL_PYTHONPATH:$KIKIT_PYTHONPATH"
 fi
 
 ORIGINAL_PYTHONPATH="${PYTHONPATH:-}"
@@ -113,19 +122,81 @@ if [ ! -s "$PANEL_LIST" ]; then
 fi
 
 echo "Running Kikakuka comparison tests:" >&2
-echo "  local python:  $KIKAKUKA_PYTHON" >&2
+echo "  local runner:  $KIKAKUKA_LOCAL_RUNNER python" >&2
+if [ -n "$KIKAKUKA_LOCAL_PYTHON_ENV_DIR" ]; then
+    echo "  local env:     $KIKAKUKA_LOCAL_PYTHON_ENV_DIR" >&2
+fi
+if [ -n "$KIKAKUKA_LOCAL_PYTHON" ]; then
+    echo "  local python:  $KIKAKUKA_LOCAL_PYTHON" >&2
+fi
 echo "  golden python: $KIKAKUKA_GOLDEN_PYTHON" >&2
 echo "  script:        $KIKAKUKA_SCRIPT" >&2
 echo "  samples:       $KIKAKUKA_SAMPLES_DIR" >&2
 echo "  gerber export: $KIKAKUKA_GERBER_EXPORT" >&2
 echo "  cache:         $CACHE_ROOT" >&2
 echo "  compare:       $COMPARE_SCRIPT" >&2
+if [ "$KIKAKUKA_INSTALL_DEPS" != "0" ]; then
+    echo "  requirements:  $KIKAKUKA_REQUIREMENTS" >&2
+    if [ -n "$KIKAKUKA_EXTRA_REQUIREMENT" ]; then
+        echo "  extra:         $KIKAKUKA_EXTRA_REQUIREMENT" >&2
+    fi
+fi
+if [ -n "$KIKIT_PYTHONPATH" ]; then
+    echo "  kikit:         $KIKIT_PYTHONPATH" >&2
+fi
 if [ -n "$NATIVE_BUILD_DIR" ]; then
     echo "  native:        $NATIVE_BUILD_DIR" >&2
 fi
 
 TOTAL=0
 FAILED=0
+
+run_local_python_base() (
+    PYTHONPATH="$TEST_PYTHONPATH"
+    export PYTHONPATH
+
+    if [ -n "$NATIVE_BUILD_DIR" ]; then
+        PYBIND11_KICAD_NATIVE_BUILD_DIR="$NATIVE_BUILD_DIR"
+        export PYBIND11_KICAD_NATIVE_BUILD_DIR
+    fi
+
+    if [ -n "$KIKAKUKA_LOCAL_PYTHON_ENV_DIR" ]; then
+        PYBIND11_KICAD_PYTHON_ENV_DIR="$KIKAKUKA_LOCAL_PYTHON_ENV_DIR"
+        export PYBIND11_KICAD_PYTHON_ENV_DIR
+    fi
+
+    if [ -n "$KIKAKUKA_LOCAL_PYTHON" ]; then
+        PYBIND11_KICAD_PYTHON="$KIKAKUKA_LOCAL_PYTHON"
+        export PYBIND11_KICAD_PYTHON
+    fi
+
+    exec "$KIKAKUKA_LOCAL_RUNNER" python "$@"
+)
+
+run_local_python() (
+    PYBIND11_KICAD_KIKAKUKA_HEADLESS_PUI=1
+    export PYBIND11_KICAD_KIKAKUKA_HEADLESS_PUI
+
+    run_local_python_base "$@"
+)
+
+install_local_requirements() {
+    if [ "$KIKAKUKA_INSTALL_DEPS" = "0" ]; then
+        return
+    fi
+
+    echo "Installing Kikakuka local test dependencies:" >&2
+    echo "  $KIKAKUKA_REQUIREMENTS" >&2
+    run_local_python_base -m pip install -r "$KIKAKUKA_REQUIREMENTS" >&2
+
+    if [ -n "$KIKAKUKA_EXTRA_REQUIREMENT" ]; then
+        echo "Installing Kikakuka extra test dependency:" >&2
+        echo "  $KIKAKUKA_EXTRA_REQUIREMENT" >&2
+        run_local_python_base -m pip install "$KIKAKUKA_EXTRA_REQUIREMENT" >&2
+    fi
+}
+
+install_local_requirements
 
 run_case() {
     CASE_KIND="$1"
@@ -155,7 +226,7 @@ run_case() {
         return
     fi
 
-    if PYBIND11_KICAD_KIKAKUKA_HEADLESS_PUI=1 PYTHONPATH="$TEST_PYTHONPATH" "$KIKAKUKA_PYTHON" "$KIKAKUKA_SCRIPT" "$CASE_INPUT" "$LOCAL_OUTPUT" >"$LOCAL_LOG" 2>&1; then
+    if run_local_python "$KIKAKUKA_SCRIPT" "$CASE_INPUT" "$LOCAL_OUTPUT" >"$LOCAL_LOG" 2>&1; then
         :
     else
         echo "  local failed:  $LOCAL_LOG" >&2
@@ -168,7 +239,7 @@ run_case() {
         return
     fi
 
-    if PYTHONPATH="$TEST_PYTHONPATH" "$KIKAKUKA_PYTHON" "$COMPARE_SCRIPT" "$GOLDEN_OUTPUT" "$LOCAL_OUTPUT" >"$DIFF_FILE" 2>&1; then
+    if run_local_python "$COMPARE_SCRIPT" "$GOLDEN_OUTPUT" "$LOCAL_OUTPUT" >"$DIFF_FILE" 2>&1; then
         rm -f "$DIFF_FILE"
         echo "  ok" >&2
     else

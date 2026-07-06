@@ -57,16 +57,16 @@ $env:CMAKE_BUILD_PARALLEL_LEVEL = "8"
 ```
 
 ```sh
-bash scripts/build.sh
+bash scripts/run.sh
 ```
 
 ## Build
 
-With no subcommand, `scripts/build.sh` builds pinned KiCad and the
+With no subcommand, `scripts/run.sh` builds pinned KiCad and the
 pybind11-kicad native module:
 
 ```sh
-scripts/build.sh
+scripts/run.sh
 ```
 
 To build the pieces explicitly, use the same pinned KiCad build tree and choose
@@ -75,17 +75,24 @@ the named subcommand.
 Build KiCad:
 
 ```sh
-scripts/build.sh kicad
+scripts/run.sh build-kicad
 ```
 
 This fetches or reuses `tmp/kicad`, verifies the pinned KiCad commit,
-configures KiCad, and builds the KiCad executable set, including
-`tmp/pybind11-kicad-10-build/kicad/kicad-cli`.
+configures KiCad, and builds the KiCad executable set, including the kifaces
+that KiCad CLI loads for board and schematic-backed commands.
+
+Invoke the self-built KiCad CLI through the build script so the executable path
+is resolved for the current platform:
+
+```sh
+scripts/run.sh kicad-cli version
+```
 
 Build pybind11-kicad:
 
 ```sh
-scripts/build.sh pybind11-kicad
+scripts/run.sh build-pybind11-kicad
 ```
 
 This builds the native extension at
@@ -94,7 +101,7 @@ For checkout-based development, the Python package itself is used directly from
 `python/`. The pybind11-kicad targets are explicit build targets, so a plain
 KiCad build does not accidentally build the Python extension.
 
-`scripts/build.sh` is the reproducible build entry point. It:
+`scripts/run.sh` is the reproducible build entry point. It:
 
 * fetches or reuses the pinned shallow KiCad 10.0.4 source checkout
 * verifies commit `f7414d419cae5df2d00e7eaacb16fc0e803799bc`
@@ -102,17 +109,22 @@ KiCad build does not accidentally build the Python extension.
 * configures KiCad as the top-level CMake project
 * adds `native/` at the end of that KiCad configure pass with
   `CMAKE_PROJECT_TOP_LEVEL_INCLUDES` and `cmake_language(DEFER)`
-* builds KiCad from the pinned source tree, including the command-line
-  executable
+* builds KiCad from the pinned source tree, including the CLI-required
+  `pcbnew` and `eeschema` kifaces
+* configures KiCad's own `KICAD_IPC_API` option on so the self-built CLI and
+  CLI-required kifaces match KiCad's expected link surface
 * builds `pybind11_kicad_native` against KiCad's internal headless board/common
   IO targets instead of the full `pcbnew` editor kiface
 * runs Python with the checkout package and built native module importable when
-  invoked as `scripts/build.sh python`
+  invoked as `scripts/run.sh python`
+
+`KICAD_IPC_API` is a KiCad build option needed by KiCad's own CLI/kiface
+targets. pybind11-kicad still avoids IPC for normal board file IO.
 
 Use configure-only mode when checking CMake changes:
 
 ```sh
-scripts/build.sh configure
+scripts/run.sh configure-kicad
 ```
 
 For a metadata-only native scaffold without KiCad-linked board IO:
@@ -129,19 +141,19 @@ cmake --build $PWD/tmp/pybind11-kicad-native-10-check \
 Run Python with the built backend:
 
 ```sh
-scripts/build.sh python
+scripts/run.sh python
 ```
 
 Example smoke check:
 
 ```sh
-scripts/build.sh python -c 'import pybind11_kicad as kc; print(kc.backend_version()); print(kc.native_available())'
+scripts/run.sh python -c 'import pybind11_kicad as kc; print(kc.backend_version()); print(kc.native_available())'
 ```
 
 Open and save a board:
 
 ```sh
-scripts/build.sh python -c 'import pybind11_kicad as kc; b = kc.Board.open("tests/golden/simple_board.kicad_pcb"); print(len(b.footprints())); b.save("tmp/quickstart.kicad_pcb")'
+scripts/run.sh python -c 'import pybind11_kicad as kc; b = kc.Board.open("tests/golden/simple_board.kicad_pcb"); print(len(b.footprints())); b.save("tmp/quickstart.kicad_pcb")'
 ```
 
 The `python` subcommand uses `PYBIND11_KICAD_PYTHON` or `python3.14`, then
@@ -159,17 +171,14 @@ The default paths are:
 KiCad source:       $PWD/tmp/kicad
 KiCad build:        $PWD/tmp/pybind11-kicad-10-build
 Native module dir:  $PWD/tmp/pybind11-kicad-10-build/pybind11-kicad-native
-KiCad CLI:          $PWD/tmp/pybind11-kicad-10-build/kicad/kicad-cli
+KiCad CLI:          use scripts/run.sh kicad-cli [args...]
 Python env:         $PWD/env
 ```
 
 The pinned inputs are:
 
 ```text
-KiCad version: 10.0.4
-KiCad major:   10
-KiCad tag:     10.0.4
-KiCad commit:  f7414d419cae5df2d00e7eaacb16fc0e803799bc
+KiCad:         10.0.4 (f7414d419cae5df2d00e7eaacb16fc0e803799bc)
 Python:        3.14
 ```
 
@@ -178,7 +187,7 @@ Common overrides:
 ```sh
 PYBIND11_KICAD_PYTHON=/opt/homebrew/bin/python3.14 \
 PYBIND11_KICAD_BUILD_DIR=$PWD/tmp/pybind11-kicad-10-build \
-  scripts/build.sh
+  scripts/run.sh
 ```
 
 ## Dependency Helpers
@@ -205,10 +214,17 @@ Run the repository tests:
 scripts/test-kicad.sh
 ```
 
+Run the self-built KiCad CLI smoke test. It checks the pinned CLI version and
+exports a small board fixture to PDF:
+
+```sh
+scripts/test-kicad-cli.sh
+```
+
 Run the vendored KiCad 10 legacy SWIG `pcbnew` pytest suite:
 
 ```sh
-scripts/build.sh python -m pip install -r compat/pcbnewswig-test-requirements.txt
+scripts/run.sh python -m pip install -r compat/pcbnewswig-test-requirements.txt
 scripts/run-pcbnewswig-tests.sh
 ```
 
@@ -264,17 +280,22 @@ The default native module path is
 Run the Kikakuka compatibility panel comparison:
 
 ```sh
-PYBIND11_KICAD_KIKAKUKA_VENV=$PWD/tmp/pybind11-kicad-kikit-test-venv \
 PYBIND11_KICAD_NATIVE_BUILD_DIR=$PWD/tmp/pybind11-kicad-10-build/pybind11-kicad-native \
 PYBIND11_KICAD_KIKAKUKA_SOURCE=../kikakuka \
-PYBIND11_KICAD_KIKAKUKA_OUTPUT=$PWD/tmp/out.kicad_pcb \
   scripts/run-kikakuka-test.sh
 ```
 
-The script makes this repository's `python/` directory importable so Kikakuka
-can import the local `pcbnew` compatibility module. Set
-`PYBIND11_KICAD_NATIVE_BUILD_DIR` to the native module directory produced by the
-board IO build instead of an installed `pybind11_kicad_native` extension.
+The script installs local test dependencies from the configured Kikakuka
+checkout's `requirements.txt` through `scripts/run.sh python`, then installs
+the Kikakuka test extra dependency `wxPython==4.2.5`. This project also declares
+that pin in its `kikakuka-test` packaging extra. Kikakuka imports `wx` during
+startup but does not list `wxPython` in its own requirements file. The script
+then makes this repository's `python/` directory importable so Kikakuka can
+import the local `pcbnew` compatibility module. Set
+`PYBIND11_KICAD_NATIVE_BUILD_DIR` to the native module directory produced by
+the board IO build instead of an installed `pybind11_kicad_native` extension.
+Set `PYBIND11_KICAD_KIKAKUKA_INSTALL_DEPS=0` to skip the install step, or
+`PYBIND11_KICAD_KIKAKUKA_EXTRA_REQUIREMENT=` to skip only the extra dependency.
 
 `scripts/run-kikakuka-test.sh` enumerates all `.kikit_pnl` files under the
 configured Kikakuka samples directory, also runs the `samples/gerber/export`

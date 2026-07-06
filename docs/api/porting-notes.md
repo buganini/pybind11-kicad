@@ -112,7 +112,7 @@ When the target KiCad version changes, re-extract SWIG constants and rerun the
 full compatibility set:
 
 ```sh
-scripts/build.sh python -m unittest discover -s tests
+scripts/run.sh python -m unittest discover -s tests
 scripts/run-pcbnewswig-tests.sh
 scripts/run-kikit-tests.sh unit
 scripts/run-kikit-tests.sh system

@@ -18,15 +18,19 @@ if [ "$#" -gt 0 ]; then
 fi
 
 case "$MODE" in
-    configure)
+    configure-kicad)
         BUILD_TARGETS=""
-        BUILD_SCOPE="configure only"
+        BUILD_SCOPE="configure KiCad only"
         ;;
-    kicad)
-        BUILD_TARGETS="kicad kicad-cli"
-        BUILD_SCOPE="KiCad executable and kicad-cli"
+    build-kicad)
+        BUILD_TARGETS="kicad kicad-cli pcbnew_kiface eeschema_kiface"
+        BUILD_SCOPE="KiCad executable set with CLI-required kifaces"
         ;;
-    pybind11-kicad|native)
+    kicad-cli)
+        BUILD_TARGETS=""
+        BUILD_SCOPE="KiCad CLI"
+        ;;
+    build-pybind11-kicad)
         BUILD_TARGETS="pybind11_kicad_native"
         BUILD_SCOPE="pybind11-kicad native module"
         ;;
@@ -35,12 +39,13 @@ case "$MODE" in
         BUILD_SCOPE="Python environment"
         ;;
     all|build)
-        BUILD_TARGETS="kicad kicad-cli pybind11_kicad_native"
-        BUILD_SCOPE="KiCad executable, kicad-cli, and pybind11-kicad native module"
+        BUILD_TARGETS="kicad kicad-cli pcbnew_kiface eeschema_kiface pybind11_kicad_native"
+        BUILD_SCOPE="KiCad executable set, CLI-required kifaces, and pybind11-kicad native module"
         ;;
     *)
-        echo "usage: $0 [configure|kicad|pybind11-kicad|python|all] [python-args...]" >&2
+        echo "usage: $0 [configure-kicad|build-kicad|build-pybind11-kicad|kicad-cli|python|all] [args...]" >&2
         echo "       $0 python [-c command | -m module | script.py] [args...]" >&2
+        echo "       $0 kicad-cli [kicad-cli-args...]" >&2
         exit 2
         ;;
 esac
@@ -50,6 +55,64 @@ require_command() {
         echo "Required command not found: $1" >&2
         exit 127
     fi
+}
+
+shell_quote() {
+    if [ "$1" = "" ]; then
+        printf "''"
+        return
+    fi
+
+    printf "'"
+    printf "%s" "$1" | sed "s/'/'\\\\''/g"
+    printf "'"
+}
+
+print_env_assignment() {
+    printf "%s=" "$1"
+    shell_quote "$2"
+}
+
+print_python_invocation() {
+    {
+        printf "+ "
+        print_env_assignment VIRTUAL_ENV "$VIRTUAL_ENV"
+        printf " "
+        print_env_assignment PATH "$PATH"
+        printf " "
+        print_env_assignment PYTHONPATH "$PYTHONPATH"
+        printf " "
+        shell_quote "$PYTHON_EXECUTABLE"
+
+        for arg do
+            printf " "
+            shell_quote "$arg"
+        done
+
+        printf "\n"
+    } >&2
+}
+
+print_kicad_cli_invocation() {
+    {
+        printf "+ "
+
+        if [ -n "${PYBIND11_KICAD_KICAD_CLI:-}" ]; then
+            print_env_assignment PYBIND11_KICAD_KICAD_CLI "$PYBIND11_KICAD_KICAD_CLI"
+            printf " "
+        fi
+
+        print_env_assignment PATH "$PATH"
+        printf " "
+        shell_quote "$KICAD_CLI_EXECUTABLE"
+
+        for arg do
+            printf " "
+            shell_quote "$arg"
+        done
+
+        printf "\n"
+    } >&2
 }
 
 resolve_python_executable() {
@@ -75,7 +138,7 @@ run_python_environment() {
 
     if [ ! -d "$NATIVE_DIR" ]; then
         echo "Native module directory not found: $NATIVE_DIR" >&2
-        echo "Run scripts/build.sh pybind11-kicad first, or set PYBIND11_KICAD_NATIVE_BUILD_DIR." >&2
+        echo "Run scripts/run.sh build-pybind11-kicad first, or set PYBIND11_KICAD_NATIVE_BUILD_DIR." >&2
         exit 2
     fi
 
@@ -111,7 +174,64 @@ run_python_environment() {
         export PYTHONPATH="$ROOT_DIR/python:$NATIVE_DIR"
     fi
 
+    print_python_invocation "$@"
     exec "$PYTHON_EXECUTABLE" "$@"
+}
+
+expected_kicad_cli_path() {
+    case "$(uname -s 2>/dev/null || echo unknown)" in
+        Darwin)
+            echo "$BUILD_DIR/kicad/KiCad.app/Contents/MacOS/kicad-cli"
+            ;;
+        MINGW*|MSYS*|CYGWIN*|Windows_NT)
+            echo "$BUILD_DIR/kicad/kicad-cli.exe"
+            ;;
+        *)
+            echo "$BUILD_DIR/kicad/kicad-cli"
+            ;;
+    esac
+}
+
+resolve_kicad_cli_executable() {
+    if [ -n "${PYBIND11_KICAD_KICAD_CLI:-}" ]; then
+        if [ -x "$PYBIND11_KICAD_KICAD_CLI" ]; then
+            KICAD_CLI_EXECUTABLE="$PYBIND11_KICAD_KICAD_CLI"
+            return
+        fi
+
+        echo "Configured KiCad CLI is not executable: $PYBIND11_KICAD_KICAD_CLI" >&2
+        exit 2
+    fi
+
+    case "$(uname -s 2>/dev/null || echo unknown)" in
+        Darwin)
+            set -- \
+                "$BUILD_DIR/kicad/KiCad.app/Contents/MacOS/kicad-cli" \
+                "$BUILD_DIR/kicad/kicad-cli"
+            ;;
+        MINGW*|MSYS*|CYGWIN*|Windows_NT)
+            set -- \
+                "$BUILD_DIR/kicad/kicad-cli.exe" \
+                "$BUILD_DIR/kicad/kicad-cli"
+            ;;
+        *)
+            set -- \
+                "$BUILD_DIR/kicad/kicad-cli" \
+                "$BUILD_DIR/kicad/kicad-cli.exe"
+            ;;
+    esac
+
+    for candidate do
+        if [ -x "$candidate" ]; then
+            KICAD_CLI_EXECUTABLE="$candidate"
+            return
+        fi
+    done
+
+    echo "KiCad CLI executable not found in the pinned build tree." >&2
+    echo "Expected path for this platform: $(expected_kicad_cli_path)" >&2
+    echo "Run scripts/run.sh build-kicad first, or set PYBIND11_KICAD_KICAD_CLI." >&2
+    exit 2
 }
 
 if [ "$MODE" = "python" ]; then
@@ -119,9 +239,15 @@ if [ "$MODE" = "python" ]; then
     run_python_environment "$@"
 fi
 
+if [ "$MODE" = "kicad-cli" ]; then
+    resolve_kicad_cli_executable
+    print_kicad_cli_invocation "$@"
+    exec "$KICAD_CLI_EXECUTABLE" "$@"
+fi
+
 if [ "$#" -gt 0 ]; then
     echo "Unexpected arguments for '$MODE'." >&2
-    echo "usage: $0 [configure|kicad|pybind11-kicad|python|all] [python-args...]" >&2
+    echo "usage: $0 [configure-kicad|build-kicad|build-pybind11-kicad|kicad-cli|python|all] [args...]" >&2
     exit 2
 fi
 
@@ -238,7 +364,7 @@ set -- \
     -DKICAD_BUILD_QA_TESTS=OFF \
     -DKICAD_BUILD_I18N=OFF \
     -DKICAD_USE_SENTRY=OFF \
-    -DKICAD_IPC_API=OFF \
+    -DKICAD_IPC_API=ON \
     -DKICAD_BUILD_FLATPAK=OFF \
     -DKICAD_USE_PCH=OFF
 
@@ -299,5 +425,5 @@ if [ -n "$BUILD_TARGETS" ]; then
 fi
 
 echo "KiCad/native build dir: $BUILD_DIR" >&2
-echo "KiCad CLI path: $BUILD_DIR/kicad/kicad-cli" >&2
+echo "KiCad CLI path: $(expected_kicad_cli_path)" >&2
 echo "Native module dir: $BUILD_DIR/pybind11-kicad-native" >&2
